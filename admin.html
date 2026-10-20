@@ -184,14 +184,14 @@ async function boot() {
   await loadAll();
   liveConnect(() => loadAll(true));
 }
-function showLogin(msg) { $("#appView").classList.add("hidden"); $("#loginView").classList.remove("hidden"); $("#lErr").textContent = msg || ""; }
+function showLogin(msg) { location.replace("index.html" + (msg ? "?m=notadmin" : "")); }
 $("#loginForm").onsubmit = async e => {
   e.preventDefault(); $("#lErr").textContent = "";
   const { error } = await sb.auth.signInWithPassword({ email: $("#lEmail").value.trim(), password: $("#lPass").value });
   if (error) return ($("#lErr").textContent = error.message === "Invalid login credentials" ? "Wrong email or password." : error.message);
   boot();
 };
-$("#logoutBtn").onclick = async () => { await sb.auth.signOut(); location.reload(); };
+$("#logoutBtn").onclick = async () => { await sb.auth.signOut(); location.replace("index.html"); };
 
 // ---------- tabs ----------
 document.querySelectorAll(".tab").forEach(b => b.onclick = () => {

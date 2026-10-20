@@ -16,10 +16,10 @@
     <div class="head">
       <div class="logo lg">½M</div>
       <h1>Hero Board</h1>
-      <p class="muted small">Store manager sign in</p>
+      <p class="muted small">Sign in</p>
     </div>
-    <div class="field"><label for="lCode">Store ID</label><input id="lCode" placeholder="e.g. HM001" autocomplete="username" autocapitalize="characters" required></div>
-    <div class="field"><label for="lPass">Password</label><input id="lPass" type="password" autocomplete="current-password" autocapitalize="characters" required></div>
+    <div class="field"><label for="lCode">Store ID or email</label><input id="lCode" placeholder="e.g. HM001" autocomplete="username" autocapitalize="none" required></div>
+    <div class="field"><label for="lPass">Password</label><input id="lPass" type="password" autocomplete="current-password" required></div>
     <div class="err" id="lErr"></div>
     <button class="btn big block" type="submit" id="lBtn">Sign in</button>
     <p class="muted small" style="text-align:center;margin:16px 0 0">Forgot your password? Ask the admin to reset it.</p>
@@ -48,7 +48,13 @@ const BASE = location.href.replace(/[^/]*([?#].*)?$/, "");
 
 $("#loginForm").onsubmit = async e => {
   e.preventDefault(); $("#lErr").textContent = ""; $("#lBtn").disabled = true;
-  const { data, error } = await sb.rpc("hb_store_login", { p_code: $("#lCode").value, p_password: $("#lPass").value });
+  const id = $("#lCode").value.trim();
+  if (id.includes("@")) {
+    const { error: aErr } = await sb.auth.signInWithPassword({ email: id, password: $("#lPass").value });
+    if (aErr) { $("#lBtn").disabled = false; return ($("#lErr").textContent = aErr.message === "Invalid login credentials" ? "Wrong email or password." : aErr.message); }
+    return location.replace("admin.html");
+  }
+  const { data, error } = await sb.rpc("hb_store_login", { p_code: id, p_password: $("#lPass").value });
   $("#lBtn").disabled = false;
   if (error) return ($("#lErr").textContent = errMsg(error));
   token = data.token; storageSet("hb_store_token", token); start();
@@ -59,7 +65,12 @@ function showLogin(msg) { $("#appView").classList.add("hidden"); $("#loginView")
 
 let started = false;
 async function start() {
-  if (!token) return showLogin();
+  const msg = new URLSearchParams(location.search).get("m");
+  if (!token) {
+    const { data: s } = await sb.auth.getSession();
+    if (s.session && !msg) return location.replace("admin.html");
+    return showLogin(msg === "notadmin" ? "This email is not a Hero Board admin." : "");
+  }
   const ok = await load();
   if (!ok) return;
   $("#loginView").classList.add("hidden"); $("#appView").classList.remove("hidden");
