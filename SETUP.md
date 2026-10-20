@@ -13,7 +13,7 @@ It only adds Hero Board tables (names start with `hb_`). Trackit is not touched.
 ## 3. Pages
 | Page | Who | Address |
 |---|---|---|
-| Sign in (everyone) | You and store managers | `…/hero-board/` — Store ID for stores, your email for admin |
+| Sign in (everyone) | You and store managers | `…/hero-board/` — User ID "Admin" for you, Store ID (HM001…) for stores |
 
 | Staff | Staff (opened from the WhatsApp link) | made automatically |
 
