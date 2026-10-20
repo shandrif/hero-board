@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hero Products</title>
+<link rel="stylesheet" href="style.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<script src="config.js"></script>
+<script src="common.js"></script>
+</head>
+<body>
+<header class="topbar">
+  <div class="wrap">
+    <div class="logo">½M</div>
+    <div><div class="title">Hero Products</div><div class="sub" id="hStore"></div></div>
+  </div>
+</header>
+<main class="wrap" style="max-width:760px">
+  <div id="content"><div class="panel empty">Loading…</div></div>
+</main>
+<script>
+const P = new URLSearchParams(location.search), W = P.get("w"), SC = P.get("s");
+const doneKey = `hb_staff_done_${W}_${SC}`;
+
+async function load() {
+  if (!W || !SC) return fail("LINK_INVALID");
+  const { data, error } = await sb.rpc("hb_staff_view", { p_week_token: W, p_store_code: SC });
+  if (error) return fail(error.message);
+  $("#hStore").textContent = data.store.name;
+  if (!data.is_current) return fail("LINK_OLD");
+  const done = storageGet(doneKey);
+  $("#content").innerHTML = `
+    <div class="hero-banner"><div>
+      <div class="small" style="color:var(--tan);font-weight:700;text-transform:uppercase;letter-spacing:.05em">This week's heroes</div>
+      <div class="wk">${esc(data.week.title)}</div><div class="dates">${fmtDate(data.week.start_date)} – ${fmtDate(data.week.end_date)}</div></div></div>
+    <div class="panel">${productCards(data.products)}</div>
+    <div class="panel" id="formPanel">
+      ${done ? doneHTML(JSON.parse(done)) : `
+      <h2 style="margin-bottom:4px">Confirm you know this week's heroes</h2>
+      <p class="muted small" style="margin:0 0 14px">Read the products above, then enter your details.</p>
+      <form id="f">
+        <div class="field"><label for="fName">Your full name</label><input id="fName" autocomplete="name" required maxlength="80"></div>
+        <div class="field"><label for="fId">Employee ID</label><input id="fId" required maxlength="30" autocapitalize="characters"></div>
+        <div class="err" id="fErr"></div>
+        <button class="btn teal big block" id="fBtn" type="submit">I'm aware of this week's hero products</button>
+      </form>`}
+    </div>`;
+  const f = $("#f");
+  if (f) f.onsubmit = async e => {
+    e.preventDefault(); $("#fErr").textContent = ""; $("#fBtn").disabled = true;
+    const { data: r, error } = await sb.rpc("hb_staff_ack", { p_week_token: W, p_store_code: SC, p_employee_id: $("#fId").value, p_name: $("#fName").value });
+    if (error) { $("#fBtn").disabled = false; return ($("#fErr").textContent = errMsg(error)); }
+    storageSet(doneKey, JSON.stringify(r));
+    liveConnectOnce(); livePing("staff");
+    $("#formPanel").innerHTML = doneHTML(r);
+  };
+}
+function doneHTML(r) {
+  return `<div style="text-align:center;padding:10px 0">
+    <div class="logo lg" style="margin:0 auto 12px;background:var(--teal)">✓</div>
+    <h2>Thank you, ${esc(r.name)}!</h2>
+    <p class="muted">${r.already ? "You had already confirmed" : "Confirmed"} on ${fmtDateTime(r.acked_at)}.</p></div>`;
+}
+function fail(m) {
+  $("#content").innerHTML = `<div class="panel empty"><h2 style="margin-bottom:6px">Link not working</h2>${esc(errMsg({ message: m }))}</div>`;
+}
+let lc = false;
+function liveConnectOnce() { if (!lc) { lc = true; hbChannel = sb.channel("hero-board-live"); hbChannel.subscribe(); } }
+liveConnectOnce();
+load();
+</script>
+</body>
+</html>

@@ -1,0 +1,640 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hero Board Admin</title>
+<link rel="stylesheet" href="style.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="config.js"></script>
+<script src="common.js"></script>
+</head>
+<body>
+
+<!-- LOGIN -->
+<section id="loginView" class="auth hidden">
+  <form class="auth-card" id="loginForm">
+    <div class="head">
+      <div class="logo lg">½M</div>
+      <h1>Hero Board</h1>
+      <p class="muted small">Admin sign in</p>
+    </div>
+    <div class="field"><label for="lEmail">Email</label><input id="lEmail" type="email" autocomplete="username" required></div>
+    <div class="field"><label for="lPass">Password</label><input id="lPass" type="password" autocomplete="current-password" required></div>
+    <div class="err" id="lErr"></div>
+    <button class="btn big block" type="submit">Sign in</button>
+    <p class="muted small" style="text-align:center;margin:16px 0 0">Store managers sign in on the <a href="index.html">store page</a>.</p>
+  </form>
+</section>
+
+<!-- APP -->
+<div id="appView" class="hidden">
+  <header class="topbar">
+    <div class="wrap">
+      <div class="logo">½M</div>
+      <div><div class="title">Hero Board</div><div class="sub">Admin</div></div>
+      <nav class="tabs">
+        <button class="tab on" data-tab="dash">Dashboard</button>
+        <button class="tab" data-tab="weeks">Hero Weeks</button>
+        <button class="tab" data-tab="stores">Stores</button>
+      </nav>
+      <div class="spacer"></div>
+      <span class="sub"><span class="dot-live"></span>Live</span>
+      <button class="btn ghost sm" id="logoutBtn">Log out</button>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <!-- DASHBOARD -->
+    <section id="tab-dash">
+      <div class="panel-head">
+        <div>
+          <h1 id="dTitle">Dashboard</h1>
+          <div class="muted small" id="dSub"></div>
+        </div>
+        <div class="row">
+          <select id="dWeek" style="width:auto;min-width:220px"></select>
+          <button class="btn ghost" id="exportBtn">Export Excel</button>
+        </div>
+      </div>
+      <div id="dEmpty" class="panel empty hidden">No published hero week yet. Go to <b>Hero Weeks</b> to create and publish one.</div>
+      <div id="dBody">
+        <div class="kpis" id="kpis"></div>
+        <div class="dash-grid">
+          <div class="panel">
+            <div class="panel-head">
+              <h2>Stores</h2>
+              <div class="row">
+                <input id="dSearch" placeholder="Search store…" style="width:180px">
+                <select id="dFilter" style="width:auto">
+                  <option value="all">All stores</option>
+                  <option value="Pending">Not acknowledged</option>
+                  <option value="On time">On time</option>
+                  <option value="Late">Late</option>
+                  <option value="staff">Staff not complete</option>
+                </select>
+              </div>
+            </div>
+            <div class="tbl-wrap">
+              <table>
+                <thead><tr>
+                  <th class="sort" data-sort="code">Store ID</th>
+                  <th class="sort" data-sort="name">Store</th>
+                  <th class="sort" data-sort="status">Manager</th>
+                  <th class="sort" data-sort="hours">Acknowledged</th>
+                  <th class="sort" data-sort="staffPct">Staff aware</th>
+                </tr></thead>
+                <tbody id="dRows"></tbody>
+              </table>
+            </div>
+            <p class="muted small" style="margin:10px 2px 0">Click a store to see which staff acknowledged. "On time" means within 24 hours of publishing.</p>
+          </div>
+          <div>
+            <div class="panel">
+              <div class="panel-head"><h2>Needs follow-up</h2><button class="btn ghost sm" id="copyFollow">Copy for WhatsApp</button></div>
+              <ul class="list" id="follow"></ul>
+            </div>
+            <div class="panel">
+              <div class="panel-head"><h2>Last weeks</h2>
+                <div class="legend"><span><i style="background:var(--teal)"></i>Stores</span><span><i style="background:var(--tan)"></i>Staff</span></div>
+              </div>
+              <div class="trend" id="trend"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- HERO WEEKS -->
+    <section id="tab-weeks" class="hidden">
+      <div class="weeks-layout">
+        <div>
+          <button class="btn block" id="newWeekBtn" style="margin-bottom:12px">+ New hero week</button>
+          <div id="weekList"></div>
+        </div>
+        <div id="weekEditor"></div>
+      </div>
+    </section>
+
+    <!-- STORES -->
+    <section id="tab-stores" class="hidden">
+      <div class="panel">
+        <div class="panel-head"><h2>Add stores</h2></div>
+        <div class="grid2">
+          <div>
+            <ol class="steps">
+              <li>Download the template. It has one column: <b>Store Name</b>.</li>
+              <li>Add one store name per row and save the file.</li>
+              <li>Upload it here. Each new store gets a Store ID and password.</li>
+            </ol>
+            <button class="btn ghost" id="storeTplBtn">Download store template</button>
+          </div>
+          <div>
+            <label class="dropzone" for="storeFile" id="storeDrop">
+              <b>Upload store list</b><br><span class="muted small">Excel (.xlsx) or CSV</span>
+            </label>
+            <input type="file" id="storeFile" accept=".xlsx,.xls,.csv" class="hidden">
+            <div class="row" style="margin-top:12px">
+              <input id="oneStore" placeholder="Or type one store name" style="flex:1">
+              <button class="btn" id="addOneStore">Add</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head">
+          <div><h2>All stores <span class="muted" id="storeCount"></span></h2>
+            <div class="muted small">Store login page: <span class="mono" id="storeLink"></span> <button class="btn ghost sm" id="copyStoreLink">Copy</button></div>
+          </div>
+          <div class="row">
+            <input id="sSearch" placeholder="Search…" style="width:180px">
+            <button class="btn ghost" id="togglePw">Show passwords</button>
+            <button class="btn" id="dlLogins">Download all logins</button>
+          </div>
+        </div>
+        <div class="tbl-wrap">
+          <table>
+            <thead><tr><th>Store ID</th><th>Store Name</th><th>Password</th><th>Total staff</th><th></th></tr></thead>
+            <tbody id="sRows"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<div class="overlay" id="overlay"></div>
+<aside class="drawer" id="drawer"><div class="dh" id="drawerHead"></div><div class="db" id="drawerBody"></div></aside>
+<div class="modal" id="modal"></div>
+
+<script>
+const S = { weeks: [], stores: [], storeAcks: [], staffAcks: [], dashWeek: null, editWeek: null, products: [], sort: { key: "status", dir: 1 }, showPw: false, tab: "dash" };
+const BASE = location.href.replace(/[^/]*([?#].*)?$/, "");
+
+// ---------- auth ----------
+async function boot() {
+  const { data } = await sb.auth.getSession();
+  if (!data.session) return showLogin();
+  const { data: rows } = await sb.from("hb_admins").select("user_id").eq("user_id", data.session.user.id);
+  if (!rows || !rows.length) { await sb.auth.signOut(); return showLogin("This account is not a Hero Board admin."); }
+  $("#loginView").classList.add("hidden"); $("#appView").classList.remove("hidden");
+  $("#storeLink").textContent = BASE + "index.html";
+  await loadAll();
+  liveConnect(() => loadAll(true));
+}
+function showLogin(msg) { $("#appView").classList.add("hidden"); $("#loginView").classList.remove("hidden"); $("#lErr").textContent = msg || ""; }
+$("#loginForm").onsubmit = async e => {
+  e.preventDefault(); $("#lErr").textContent = "";
+  const { error } = await sb.auth.signInWithPassword({ email: $("#lEmail").value.trim(), password: $("#lPass").value });
+  if (error) return ($("#lErr").textContent = error.message === "Invalid login credentials" ? "Wrong email or password." : error.message);
+  boot();
+};
+$("#logoutBtn").onclick = async () => { await sb.auth.signOut(); location.reload(); };
+
+// ---------- tabs ----------
+document.querySelectorAll(".tab").forEach(b => b.onclick = () => {
+  S.tab = b.dataset.tab;
+  document.querySelectorAll(".tab").forEach(x => x.classList.toggle("on", x === b));
+  ["dash", "weeks", "stores"].forEach(t => $("#tab-" + t).classList.toggle("hidden", t !== S.tab));
+  render();
+});
+
+// ---------- data ----------
+async function fetchAll(q) {
+  let out = [], from = 0, size = 1000;
+  for (;;) {
+    const { data, error } = await q().range(from, from + size - 1);
+    if (error) throw error;
+    out = out.concat(data); if (data.length < size) return out; from += size;
+  }
+}
+async function loadAll(quiet) {
+  try {
+    const [weeks, stores] = await Promise.all([
+      fetchAll(() => sb.from("hb_weeks").select("*").order("created_at", { ascending: false })),
+      fetchAll(() => sb.from("hb_stores").select("id,code,name,pass_plain,total_staff,created_at").order("code")),
+    ]);
+    S.weeks = weeks; S.stores = stores;
+    const recent = publishedWeeks().slice(0, 8).map(w => w.id);
+    const ids = recent.length ? recent : [-1];
+    const [sa, st] = await Promise.all([
+      fetchAll(() => sb.from("hb_store_acks").select("week_id,store_id,acked_at").in("week_id", ids)),
+      fetchAll(() => sb.from("hb_staff_acks").select("id,week_id,store_id,employee_id,staff_name,acked_at").in("week_id", ids)),
+    ]);
+    S.storeAcks = sa; S.staffAcks = st;
+    if (!S.dashWeek || !S.weeks.find(w => w.id === S.dashWeek && w.published)) S.dashWeek = publishedWeeks()[0]?.id || null;
+    if (S.editWeek && !S.weeks.find(w => w.id === S.editWeek)) S.editWeek = null;
+    if (!S.editWeek) S.editWeek = S.weeks[0]?.id || null;
+    if (S.editWeek) await loadProducts();
+    render();
+  } catch (e) { if (!quiet) toast(errMsg(e), "bad"); }
+}
+function publishedWeeks() { return S.weeks.filter(w => w.published).sort((a, b) => new Date(b.published_at) - new Date(a.published_at)); }
+function currentWeekId() { return publishedWeeks()[0]?.id; }
+async function loadProducts() {
+  const { data } = await sb.from("hb_products").select("*").eq("week_id", S.editWeek).order("sort").order("id");
+  S.products = data || [];
+}
+
+function render() {
+  if (S.tab === "dash") renderDash();
+  if (S.tab === "weeks") renderWeeks();
+  if (S.tab === "stores") renderStores();
+}
+
+// ---------- dashboard ----------
+function weekRows(weekId) {
+  const w = S.weeks.find(x => x.id === weekId);
+  const pub = w?.published_at ? new Date(w.published_at) : null;
+  return S.stores.map(s => {
+    const a = S.storeAcks.find(x => x.week_id === weekId && x.store_id === s.id);
+    const hours = a && pub ? (new Date(a.acked_at) - pub) / 36e5 : null;
+    const status = !a ? "Pending" : hours <= 24 ? "On time" : "Late";
+    const staff = S.staffAcks.filter(x => x.week_id === weekId && x.store_id === s.id);
+    const total = s.total_staff || 0;
+    return { ...s, ack: a?.acked_at || null, hours, status, staff, staffN: staff.length, total, staffPct: total ? Math.min(100, pct(staff.length, total)) : (staff.length ? -1 : -2) };
+  });
+}
+function chip(st) { return `<span class="chip ${st === "On time" ? "ok" : st === "Late" ? "late" : "pend"}">${st === "Pending" ? "Not acknowledged" : st}</span>`; }
+function ago(h) { if (h == null) return ""; if (h < 1) return Math.max(1, Math.round(h * 60)) + " min"; if (h < 48) return Math.round(h) + " h"; return Math.round(h / 24) + " days"; }
+
+function renderDash() {
+  const pubs = publishedWeeks();
+  $("#dEmpty").classList.toggle("hidden", !!pubs.length);
+  $("#dBody").classList.toggle("hidden", !pubs.length);
+  $("#exportBtn").disabled = !pubs.length;
+  $("#dWeek").innerHTML = pubs.map(w => `<option value="${w.id}" ${w.id === S.dashWeek ? "selected" : ""}>${esc(w.title)}${w.id === currentWeekId() ? " (current)" : ""}</option>`).join("");
+  if (!pubs.length) { $("#dSub").textContent = ""; return; }
+  const w = S.weeks.find(x => x.id === S.dashWeek);
+  const sinceH = (Date.now() - new Date(w.published_at)) / 36e5;
+  $("#dTitle").textContent = w.title;
+  $("#dSub").textContent = `${fmtDate(w.start_date)} – ${fmtDate(w.end_date)} · Published ${fmtDateTime(w.published_at)} (${ago(sinceH)} ago)`;
+
+  const rows = weekRows(w.id), N = rows.length;
+  const acked = rows.filter(r => r.status !== "Pending"), onTime = rows.filter(r => r.status === "On time");
+  const withTotal = rows.filter(r => r.total > 0);
+  const staffAware = withTotal.reduce((a, r) => a + Math.min(r.staffN, r.total), 0), staffTotal = withTotal.reduce((a, r) => a + r.total, 0);
+  const allStaff = rows.reduce((a, r) => a + r.staffN, 0);
+  const full = withTotal.filter(r => r.staffN >= r.total).length;
+  const noTotal = N - withTotal.length;
+
+  $("#kpis").innerHTML = `
+    <div class="kpi"><div class="k-label">Stores acknowledged</div><div class="k-value">${acked.length}<small> / ${N}</small></div>
+      <div class="meter"><i style="width:${pct(acked.length, N)}%"></i></div><div class="k-foot">${pct(acked.length, N)}% · ${onTime.length} on time · ${acked.length - onTime.length} late</div></div>
+    <div class="kpi"><div class="k-label">Staff aware</div><div class="k-value">${staffAware}<small> / ${staffTotal || "—"}</small></div>
+      <div class="meter tan"><i style="width:${pct(staffAware, staffTotal)}%"></i></div><div class="k-foot">${staffTotal ? pct(staffAware, staffTotal) + "% of staff" : "Stores haven't set staff count"}${allStaff > staffAware ? ` · ${allStaff} sign-offs total` : ""}</div></div>
+    <div class="kpi"><div class="k-label">Fully briefed stores</div><div class="k-value">${full}<small> / ${N}</small></div>
+      <div class="meter"><i style="width:${pct(full, N)}%"></i></div><div class="k-foot">All staff acknowledged${noTotal ? ` · ${noTotal} store${noTotal > 1 ? "s" : ""} without staff count` : ""}</div></div>
+    <div class="kpi"><div class="k-label">Not acknowledged</div><div class="k-value" style="color:${N - acked.length ? "var(--red)" : "var(--green)"}">${N - acked.length}</div>
+      <div class="k-foot">${N - acked.length ? "Stores still pending" : "Every store has acknowledged"}</div></div>`;
+
+  // table
+  const q = $("#dSearch").value.trim().toLowerCase(), f = $("#dFilter").value;
+  const order = { "Pending": 0, "Late": 1, "On time": 2 };
+  let list = rows.filter(r => (!q || r.name.toLowerCase().includes(q) || r.code.toLowerCase().includes(q)) &&
+    (f === "all" || (f === "staff" ? (r.status !== "Pending" && (r.total === 0 || r.staffN < r.total)) : r.status === f)));
+  const k = S.sort.key, d = S.sort.dir;
+  list.sort((a, b) => {
+    let x = k === "status" ? order[a.status] : a[k], y = k === "status" ? order[b.status] : b[k];
+    if (k === "hours") { x = x ?? 1e9; y = y ?? 1e9; }
+    return (x > y ? 1 : x < y ? -1 : a.code.localeCompare(b.code)) * d;
+  });
+  $("#dRows").innerHTML = list.length ? list.map(r => `
+    <tr class="click" data-store="${r.id}">
+      <td class="mono">${esc(r.code)}</td>
+      <td><b>${esc(r.name)}</b></td>
+      <td>${chip(r.status)}</td>
+      <td>${r.ack ? `${fmtDateTime(r.ack)}<div class="muted small">${ago(r.hours)} after publish</div>` : `<span class="muted">—</span>`}</td>
+      <td>${r.total ? `<div class="mini-meter"><div class="meter tan"><i style="width:${r.staffPct}%"></i></div><b>${r.staffN}/${r.total}</b></div>` : r.staffN ? `<b>${r.staffN}</b> <span class="muted small">(staff count not set)</span>` : `<span class="muted">—</span>`}</td>
+    </tr>`).join("") : `<tr><td colspan="5" class="empty">${S.stores.length ? "No stores match." : "No stores yet. Add them in the Stores tab."}</td></tr>`;
+  document.querySelectorAll("th.sort").forEach(th => th.textContent = th.textContent.replace(/ [▲▼]$/, "") + (th.dataset.sort === k ? (d > 0 ? " ▲" : " ▼") : ""));
+  $("#dRows").querySelectorAll("tr[data-store]").forEach(tr => tr.onclick = () => openStore(+tr.dataset.store));
+
+  // follow-up
+  const pend = rows.filter(r => r.status === "Pending");
+  const lowStaff = rows.filter(r => r.status !== "Pending" && r.total > 0 && r.staffN < r.total).sort((a, b) => a.staffPct - b.staffPct);
+  const noCount = rows.filter(r => r.status !== "Pending" && !r.total);
+  S.follow = { pend, lowStaff, noCount, title: w.title };
+  $("#follow").innerHTML = (pend.length + lowStaff.length + noCount.length) ? [
+    ...pend.map(r => `<li><span><b>${esc(r.name)}</b> <span class="muted small mono">${esc(r.code)}</span></span>${chip("Pending")}</li>`),
+    ...lowStaff.map(r => `<li><span><b>${esc(r.name)}</b> <span class="muted small mono">${esc(r.code)}</span></span><span class="chip late">Staff ${r.staffN}/${r.total}</span></li>`),
+    ...noCount.map(r => `<li><span><b>${esc(r.name)}</b> <span class="muted small mono">${esc(r.code)}</span></span><span class="chip draft">No staff count</span></li>`),
+  ].join("") : `<li class="empty" style="display:block">All stores and staff are done 🎉</li>`;
+
+  // trend
+  const tw = pubs.slice(0, 8).reverse();
+  $("#trend").innerHTML = tw.map(x => {
+    const rr = weekRows(x.id), n = rr.length;
+    const sp = pct(rr.filter(r => r.status !== "Pending").length, n);
+    const wt = rr.filter(r => r.total > 0), tp = pct(wt.reduce((a, r) => a + Math.min(r.staffN, r.total), 0), wt.reduce((a, r) => a + r.total, 0));
+    return `<div class="col" title="${esc(x.title)}: stores ${sp}%, staff ${tp}%">
+      <div class="bars"><div class="bar" style="height:${sp}%"></div><div class="bar tan" style="height:${tp}%"></div></div>
+      <div class="lbl" style="${x.id === S.dashWeek ? "color:#000;font-weight:700" : ""}">${esc(x.title)}</div></div>`;
+  }).join("");
+}
+$("#dWeek").onchange = e => { S.dashWeek = +e.target.value; renderDash(); };
+$("#dSearch").oninput = renderDash; $("#dFilter").onchange = renderDash;
+document.querySelectorAll("th.sort").forEach(th => th.onclick = () => {
+  S.sort = { key: th.dataset.sort, dir: S.sort.key === th.dataset.sort ? -S.sort.dir : 1 }; renderDash();
+});
+$("#copyFollow").onclick = () => {
+  const f = S.follow; if (!f) return;
+  const lines = [`*Hero Board – ${f.title}*`];
+  if (f.pend.length) lines.push("", "Not acknowledged yet:", ...f.pend.map(r => `• ${r.name} (${r.code})`));
+  if (f.lowStaff.length) lines.push("", "Staff not complete:", ...f.lowStaff.map(r => `• ${r.name} – ${r.staffN}/${r.total} staff`));
+  if (f.noCount.length) lines.push("", "Please set total staff count:", ...f.noCount.map(r => `• ${r.name}`));
+  if (lines.length === 1) lines.push("", "All stores done ✅");
+  navigator.clipboard.writeText(lines.join("\n")).then(() => toast("Copied. Paste it in WhatsApp."));
+};
+
+function openStore(id) {
+  const w = S.weeks.find(x => x.id === S.dashWeek), r = weekRows(w.id).find(x => x.id === id);
+  const link = `${BASE}staff.html?w=${w.share_token}&s=${encodeURIComponent(r.code)}`;
+  $("#drawerHead").innerHTML = `<div><h2>${esc(r.name)}</h2><div class="muted small"><span class="mono">${esc(r.code)}</span> · ${esc(w.title)}</div></div><button class="x" onclick="closeAll()">×</button>`;
+  const staff = [...r.staff].sort((a, b) => new Date(a.acked_at) - new Date(b.acked_at));
+  $("#drawerBody").innerHTML = `
+    <div class="grid2" style="margin-bottom:16px">
+      <div class="kpi"><div class="k-label">Manager</div><div style="margin-top:8px">${chip(r.status)}</div><div class="k-foot">${r.ack ? fmtDateTime(r.ack) : "Not yet"}</div></div>
+      <div class="kpi"><div class="k-label">Staff aware</div><div class="k-value">${r.staffN}<small> / ${r.total || "—"}</small></div></div>
+    </div>
+    <h3 style="margin-bottom:8px">Staff who acknowledged</h3>
+    ${staff.length ? `<div class="tbl-wrap"><table><thead><tr><th>#</th><th>Name</th><th>Employee ID</th><th>Time</th></tr></thead><tbody>
+      ${staff.map((s, i) => `<tr><td class="muted">${i + 1}</td><td><b>${esc(s.staff_name)}</b></td><td class="mono">${esc(s.employee_id)}</td><td class="small">${fmtDateTime(s.acked_at)}</td></tr>`).join("")}
+    </tbody></table></div>` : `<p class="empty">No staff have acknowledged yet.</p>`}
+    <h3 style="margin:18px 0 8px">Staff link for this store</h3>
+    <div class="row"><input readonly value="${esc(link)}" class="mono small" style="flex:1"><button class="btn ghost sm" id="cpStaffLink">Copy</button></div>`;
+  $("#cpStaffLink").onclick = () => navigator.clipboard.writeText(link).then(() => toast("Link copied"));
+  $("#overlay").classList.add("show"); $("#drawer").classList.add("show");
+}
+function closeAll() { ["#overlay", "#drawer", "#modal"].forEach(s => $(s).classList.remove("show")); }
+$("#overlay").onclick = closeAll;
+document.addEventListener("keydown", e => { if (e.key === "Escape") closeAll(); });
+
+$("#exportBtn").onclick = () => {
+  const w = S.weeks.find(x => x.id === S.dashWeek), rows = weekRows(w.id);
+  const s1 = rows.map(r => ({ "Store ID": r.code, "Store": r.name, "Manager status": r.status === "Pending" ? "Not acknowledged" : r.status,
+    "Acknowledged at": r.ack ? fmtDateTime(r.ack) : "", "Hours after publish": r.hours == null ? "" : Math.round(r.hours * 10) / 10,
+    "Staff aware": r.staffN, "Total staff": r.total || "", "Staff aware %": r.total ? Math.min(100, pct(r.staffN, r.total)) : "" }));
+  const s2 = [];
+  rows.forEach(r => r.staff.forEach(s => s2.push({ "Store ID": r.code, "Store": r.name, "Employee ID": s.employee_id, "Name": s.staff_name, "Acknowledged at": fmtDateTime(s.acked_at) })));
+  const wb = XLSX.utils.book_new();
+  const a = XLSX.utils.json_to_sheet(s1); a["!cols"] = [{ wch: 10 }, { wch: 28 }, { wch: 18 }, { wch: 20 }, { wch: 18 }, { wch: 12 }, { wch: 12 }, { wch: 14 }];
+  const b = XLSX.utils.json_to_sheet(s2.length ? s2 : [{ "Store ID": "", "Store": "", "Employee ID": "", "Name": "", "Acknowledged at": "" }]); b["!cols"] = [{ wch: 10 }, { wch: 28 }, { wch: 14 }, { wch: 26 }, { wch: 20 }];
+  XLSX.utils.book_append_sheet(wb, a, "Stores"); XLSX.utils.book_append_sheet(wb, b, "Staff");
+  XLSX.writeFile(wb, `Hero Board - ${w.title.replace(/[\\/:*?"<>|]/g, "")}.xlsx`);
+};
+
+// ---------- hero weeks ----------
+function weekState(w) {
+  if (!w.published) return `<span class="chip draft">Draft</span>`;
+  return w.id === currentWeekId() ? `<span class="chip live">Live now</span>` : `<span class="chip draft">Past</span>`;
+}
+function renderWeeks() {
+  $("#weekList").innerHTML = S.weeks.length ? S.weeks.map(w => `
+    <button class="week-item ${w.id === S.editWeek ? "on" : ""}" data-w="${w.id}">
+      <div class="row" style="justify-content:space-between"><span class="wt">${esc(w.title)}</span>${weekState(w)}</div>
+      <div class="muted small">${fmtDate(w.start_date)} – ${fmtDate(w.end_date)}</div>
+    </button>`).join("") : `<p class="muted small">No weeks yet.</p>`;
+  $("#weekList").querySelectorAll("[data-w]").forEach(b => b.onclick = async () => { S.editWeek = +b.dataset.w; await loadProducts(); renderWeeks(); });
+  const w = S.weeks.find(x => x.id === S.editWeek);
+  if (!w) { $("#weekEditor").innerHTML = `<div class="panel empty">Create your first hero week to get started.</div>`; return; }
+  const ackN = S.storeAcks.filter(a => a.week_id === w.id).length;
+  $("#weekEditor").innerHTML = `
+    <div class="panel">
+      <div class="panel-head">
+        <div class="row"><h2>${esc(w.title)}</h2>${weekState(w)}</div>
+        <div class="row">
+          ${w.published ? `<button class="btn ghost" id="unpubBtn">Unpublish</button>` : `<button class="btn teal" id="pubBtn" ${S.products.length ? "" : "disabled title='Add at least one product first'"}>Publish to all stores</button>`}
+          <button class="btn danger" id="delWeekBtn">Delete</button>
+        </div>
+      </div>
+      ${w.published ? `<p class="muted small" style="margin:-6px 0 14px">Published ${fmtDateTime(w.published_at)} · ${ackN} of ${S.stores.length} stores acknowledged${w.id !== currentWeekId() ? " · A newer week is live, so stores no longer see this one" : ""}</p>` : `<p class="muted small" style="margin:-6px 0 14px">Stores can't see this week until you publish it. The newest published week is the one stores see.</p>`}
+      <div class="grid3">
+        <div><label>Title</label><input id="wTitle" value="${esc(w.title)}"></div>
+        <div><label>Start date</label><input id="wStart" type="date" value="${w.start_date}"></div>
+        <div><label>End date</label><input id="wEnd" type="date" value="${w.end_date}"></div>
+      </div>
+      <div style="margin-top:12px"><button class="btn ghost sm" id="saveWeekBtn">Save changes</button></div>
+    </div>
+    <div class="panel">
+      <div class="panel-head"><h2>Hero products <span class="muted">(${S.products.length})</span></h2>
+        <div class="row">
+          <button class="btn ghost sm" id="prodTplBtn">Product template</button>
+          <label class="btn ghost sm" for="prodFile" style="margin:0;text-transform:none;letter-spacing:0;font-size:13px;color:var(--ink)">Upload products</label>
+          <input type="file" id="prodFile" accept=".xlsx,.xls,.csv" class="hidden">
+          <button class="btn sm" id="addProdBtn">+ Add product</button>
+        </div>
+      </div>
+      ${S.products.length ? `<div class="cards">${S.products.map(p => `
+        <article class="pcard">
+          <div class="pimg">${p.photo_url ? `<img src="${esc(p.photo_url)}" alt="">` : `<span>½M</span>`}</div>
+          <div class="pbody"><h3>${esc(p.name)}</h3>${p.price != null ? `<div class="price">${fmtPrice(p.price)}</div>` : ""}${p.description ? `<p>${esc(p.description)}</p>` : ""}${!p.photo_url ? `<p class="small" style="color:var(--amber)">No photo yet</p>` : ""}</div>
+          <div class="pactions"><button class="btn ghost sm" data-edit="${p.id}">Edit</button><button class="btn danger sm" data-del="${p.id}">Remove</button></div>
+        </article>`).join("")}</div>` : `<div class="empty">No products yet. Add them one by one, or upload the product template.</div>`}
+    </div>`;
+  $("#saveWeekBtn").onclick = async () => {
+    const t = $("#wTitle").value.trim(), s = $("#wStart").value, e = $("#wEnd").value;
+    if (!t || !s || !e) return toast("Fill in title and dates", "bad");
+    if (e < s) return toast("End date is before start date", "bad");
+    const { error } = await sb.from("hb_weeks").update({ title: t, start_date: s, end_date: e }).eq("id", w.id);
+    if (error) return toast(errMsg(error), "bad");
+    toast("Saved"); livePing("week"); loadAll();
+  };
+  if ($("#pubBtn")) $("#pubBtn").onclick = async () => {
+    const { error } = await sb.from("hb_weeks").update({ published: true, published_at: new Date().toISOString() }).eq("id", w.id);
+    if (error) return toast(errMsg(error), "bad");
+    toast("Published. Stores can see it now."); livePing("publish"); loadAll();
+  };
+  if ($("#unpubBtn")) $("#unpubBtn").onclick = async () => {
+    if (!confirm("Unpublish this week? Stores will stop seeing it. Acknowledgements are kept.")) return;
+    const { error } = await sb.from("hb_weeks").update({ published: false }).eq("id", w.id);
+    if (error) return toast(errMsg(error), "bad");
+    toast("Unpublished"); livePing("publish"); loadAll();
+  };
+  $("#delWeekBtn").onclick = async () => {
+    if (!confirm(`Delete "${w.title}" with its products and all acknowledgements? This can't be undone.`)) return;
+    const { error } = await sb.from("hb_weeks").delete().eq("id", w.id);
+    if (error) return toast(errMsg(error), "bad");
+    S.editWeek = null; toast("Week deleted"); livePing("publish"); loadAll();
+  };
+  $("#addProdBtn").onclick = () => productModal();
+  $("#prodTplBtn").onclick = () => downloadSheet([["Product Name", "Description", "Price"], ["Pistachio Latte", "Creamy latte with pistachio sauce", 18]], "Hero Board - Product Template.xlsx", [28, 44, 10]);
+  $("#prodFile").onchange = async e => {
+    const f = e.target.files[0]; e.target.value = ""; if (!f) return;
+    const rows = await readSheet(f);
+    const items = rows.map(r => ({ name: String(pick(r, ["product name", "name", "product"]) || "").trim(), description: String(pick(r, ["description", "desc"]) || "").trim(), price: parsePrice(pick(r, ["price"])) })).filter(x => x.name);
+    if (!items.length) return toast("No products found. Use the product template.", "bad");
+    const start = S.products.length;
+    const { error } = await sb.from("hb_products").insert(items.map((x, i) => ({ ...x, week_id: w.id, sort: start + i })));
+    if (error) return toast(errMsg(error), "bad");
+    toast(`${items.length} product${items.length > 1 ? "s" : ""} added. Add photos with Edit.`); await loadProducts(); renderWeeks(); if (w.published) livePing("products");
+  };
+  $("#weekEditor").querySelectorAll("[data-edit]").forEach(b => b.onclick = () => productModal(S.products.find(p => p.id === +b.dataset.edit)));
+  $("#weekEditor").querySelectorAll("[data-del]").forEach(b => b.onclick = async () => {
+    if (!confirm("Remove this product?")) return;
+    const { error } = await sb.from("hb_products").delete().eq("id", +b.dataset.del);
+    if (error) return toast(errMsg(error), "bad");
+    await loadProducts(); renderWeeks(); if (w.published) livePing("products");
+  });
+}
+$("#newWeekBtn").onclick = () => {
+  const now = new Date(), day = now.getDay(), sun = new Date(now); sun.setDate(now.getDate() - day);
+  const sat = new Date(sun); sat.setDate(sun.getDate() + 6);
+  const iso = d => d.toLocaleDateString("en-CA");
+  $("#modal").innerHTML = `
+    <div class="panel-head"><h2>New hero week</h2><button class="x" onclick="closeAll()">×</button></div>
+    <div class="field"><label>Title</label><input id="nwTitle" placeholder="e.g. Week 43 – Pistachio Heroes"></div>
+    <div class="grid2"><div class="field"><label>Start date</label><input id="nwStart" type="date" value="${iso(sun)}"></div><div class="field"><label>End date</label><input id="nwEnd" type="date" value="${iso(sat)}"></div></div>
+    <button class="btn block" id="nwSave">Create week</button>`;
+  $("#overlay").classList.add("show"); $("#modal").classList.add("show"); $("#nwTitle").focus();
+  $("#nwSave").onclick = async () => {
+    const t = $("#nwTitle").value.trim(), s = $("#nwStart").value, e = $("#nwEnd").value;
+    if (!t || !s || !e) return toast("Fill in title and dates", "bad");
+    if (e < s) return toast("End date is before start date", "bad");
+    const { data, error } = await sb.from("hb_weeks").insert({ title: t, start_date: s, end_date: e }).select().single();
+    if (error) return toast(errMsg(error), "bad");
+    closeAll(); S.editWeek = data.id; toast("Week created. Now add the hero products."); loadAll();
+  };
+};
+function productModal(p) {
+  $("#modal").innerHTML = `
+    <div class="panel-head"><h2>${p ? "Edit product" : "Add product"}</h2><button class="x" onclick="closeAll()">×</button></div>
+    <div class="grid2"><div class="field"><label>Product name</label><input id="pmName" value="${esc(p?.name || "")}"></div>
+      <div class="field"><label>Price (SAR)</label><input id="pmPrice" type="number" step="0.01" min="0" value="${p?.price ?? ""}"></div></div>
+    <div class="field"><label>Short description</label><textarea id="pmDesc">${esc(p?.description || "")}</textarea></div>
+    <div class="field"><label>Photo</label>
+      <div class="row"><div class="pimg" style="width:110px;border-radius:10px" id="pmPrev">${p?.photo_url ? `<img src="${esc(p.photo_url)}">` : `<span>½M</span>`}</div>
+      <input type="file" id="pmFile" accept="image/*" style="flex:1"></div></div>
+    <button class="btn block" id="pmSave">${p ? "Save" : "Add product"}</button>`;
+  $("#overlay").classList.add("show"); $("#modal").classList.add("show");
+  let file = null;
+  $("#pmFile").onchange = e => { file = e.target.files[0]; if (file) $("#pmPrev").innerHTML = `<img src="${URL.createObjectURL(file)}">`; };
+  $("#pmSave").onclick = async () => {
+    const name = $("#pmName").value.trim(); if (!name) return toast("Enter a product name", "bad");
+    $("#pmSave").disabled = true; $("#pmSave").textContent = "Saving…";
+    try {
+      let photo_url = p?.photo_url || null;
+      if (file) photo_url = await uploadPhoto(file, S.editWeek);
+      const row = { name, description: $("#pmDesc").value.trim(), price: parsePrice($("#pmPrice").value), photo_url };
+      const { error } = p ? await sb.from("hb_products").update(row).eq("id", p.id) : await sb.from("hb_products").insert({ ...row, week_id: S.editWeek, sort: S.products.length });
+      if (error) throw error;
+      closeAll(); await loadProducts(); renderWeeks();
+      if (S.weeks.find(w => w.id === S.editWeek)?.published) livePing("products");
+    } catch (e) { toast(errMsg(e), "bad"); $("#pmSave").disabled = false; $("#pmSave").textContent = "Save"; }
+  };
+}
+async function uploadPhoto(file, weekId) {
+  const blob = await shrinkImage(file);
+  const path = `week-${weekId}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.jpg`;
+  const { error } = await sb.storage.from("hb-photos").upload(path, blob, { contentType: "image/jpeg" });
+  if (error) throw error;
+  return sb.storage.from("hb-photos").getPublicUrl(path).data.publicUrl;
+}
+function shrinkImage(file) {
+  return new Promise((res, rej) => {
+    const img = new Image();
+    img.onload = () => {
+      const m = 1200, r = Math.min(1, m / Math.max(img.width, img.height));
+      const c = document.createElement("canvas"); c.width = Math.round(img.width * r); c.height = Math.round(img.height * r);
+      c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+      c.toBlob(b => b ? res(b) : rej(new Error("Could not read image")), "image/jpeg", .85);
+    };
+    img.onerror = () => rej(new Error("Could not read image"));
+    img.src = URL.createObjectURL(file);
+  });
+}
+
+// ---------- stores ----------
+function renderStores() {
+  const q = $("#sSearch").value.trim().toLowerCase();
+  const list = S.stores.filter(s => !q || s.name.toLowerCase().includes(q) || s.code.toLowerCase().includes(q));
+  $("#storeCount").textContent = `(${S.stores.length})`;
+  $("#togglePw").textContent = S.showPw ? "Hide passwords" : "Show passwords";
+  $("#dlLogins").disabled = !S.stores.length;
+  $("#sRows").innerHTML = list.length ? list.map(s => `
+    <tr>
+      <td class="mono"><b>${esc(s.code)}</b></td>
+      <td>${esc(s.name)}</td>
+      <td class="mono">${S.showPw ? esc(s.pass_plain) : "••••••"}</td>
+      <td><input type="number" min="0" max="500" value="${s.total_staff || ""}" placeholder="—" data-staff="${s.id}" style="width:80px;padding:6px 8px"></td>
+      <td style="text-align:right;white-space:nowrap"><button class="btn ghost sm" data-reset="${s.id}">Reset password</button> <button class="btn danger sm" data-sdel="${s.id}">Delete</button></td>
+    </tr>`).join("") : `<tr><td colspan="5" class="empty">${S.stores.length ? "No stores match." : "No stores yet. Download the template, add your store names and upload it."}</td></tr>`;
+  $("#sRows").querySelectorAll("[data-staff]").forEach(i => i.onchange = async () => {
+    const v = parseInt(i.value || "0", 10);
+    const { error } = await sb.from("hb_stores").update({ total_staff: isNaN(v) ? 0 : Math.max(0, v) }).eq("id", +i.dataset.staff);
+    if (error) return toast(errMsg(error), "bad");
+    toast("Staff count saved"); livePing("stores"); loadAll(true);
+  });
+  $("#sRows").querySelectorAll("[data-reset]").forEach(b => b.onclick = async () => {
+    const s = S.stores.find(x => x.id === +b.dataset.reset);
+    if (!confirm(`Make a new password for ${s.name}? The old one will stop working.`)) return;
+    const { data, error } = await sb.rpc("hb_admin_reset_password", { p_store_id: s.id });
+    if (error) return toast(errMsg(error), "bad");
+    await loadAll(true); showLogins([{ code: s.code, name: s.name, password: data, created: true }], "New password");
+  });
+  $("#sRows").querySelectorAll("[data-sdel]").forEach(b => b.onclick = async () => {
+    const s = S.stores.find(x => x.id === +b.dataset.sdel);
+    if (!confirm(`Delete ${s.name} (${s.code})? Its acknowledgement history will be removed too.`)) return;
+    const { error } = await sb.from("hb_stores").delete().eq("id", s.id);
+    if (error) return toast(errMsg(error), "bad");
+    toast("Store deleted"); loadAll();
+  });
+}
+$("#sSearch").oninput = renderStores;
+$("#togglePw").onclick = () => { S.showPw = !S.showPw; renderStores(); };
+$("#copyStoreLink").onclick = () => navigator.clipboard.writeText(BASE + "index.html").then(() => toast("Link copied"));
+$("#storeTplBtn").onclick = () => downloadSheet([["Store Name"], ["Olaya Branch"], ["Corniche Branch"]], "Hero Board - Store Template.xlsx", [32]);
+$("#dlLogins").onclick = () => downloadLogins(S.stores.map(s => ({ code: s.code, name: s.name, password: s.pass_plain })));
+$("#storeFile").onchange = async e => {
+  const f = e.target.files[0]; e.target.value = ""; if (!f) return;
+  const rows = await readSheet(f);
+  const names = rows.map(r => String(pick(r, ["store name", "store", "name", "branch", "branch name"]) || "").trim()).filter(Boolean);
+  if (!names.length) return toast("No store names found. Use the store template (column: Store Name).", "bad");
+  createStores([...new Set(names)]);
+};
+$("#addOneStore").onclick = () => { const n = $("#oneStore").value.trim(); if (n) { createStores([n]); $("#oneStore").value = ""; } };
+async function createStores(names) {
+  const { data, error } = await sb.rpc("hb_admin_create_stores", { p_names: names });
+  if (error) return toast(errMsg(error), "bad");
+  await loadAll(true);
+  showLogins(data, "Store logins");
+  livePing("stores");
+}
+function showLogins(list, title) {
+  const nNew = list.filter(x => x.created).length;
+  $("#modal").innerHTML = `
+    <div class="panel-head"><h2>${title}</h2><button class="x" onclick="closeAll()">×</button></div>
+    <p class="muted small" style="margin-top:-6px">${nNew} new${list.length - nNew ? ` · ${list.length - nNew} already existed (kept as is)` : ""}. Stores sign in at <span class="mono">${esc(BASE)}index.html</span></p>
+    <div class="tbl-wrap" style="max-height:50vh"><table><thead><tr><th>Store ID</th><th>Store</th><th>Password</th><th></th></tr></thead><tbody>
+      ${list.map(x => `<tr><td class="mono"><b>${esc(x.code)}</b></td><td>${esc(x.name)}</td><td class="mono">${esc(x.password)}</td><td>${x.created ? `<span class="chip ok">New</span>` : `<span class="chip draft">Existing</span>`}</td></tr>`).join("")}
+    </tbody></table></div>
+    <div class="row" style="margin-top:14px"><button class="btn" id="dlNew">Download these logins</button><button class="btn ghost" onclick="closeAll()">Done</button></div>`;
+  $("#overlay").classList.add("show"); $("#modal").classList.add("show");
+  $("#dlNew").onclick = () => downloadLogins(list);
+}
+function downloadLogins(list) {
+  downloadSheet([["Store ID", "Store Name", "Password", "Login page"], ...list.map(x => [x.code, x.name, x.password, BASE + "index.html"])], "Hero Board - Store Logins.xlsx", [10, 30, 12, 48]);
+}
+
+// ---------- excel helpers ----------
+function downloadSheet(aoa, filename, widths) {
+  const wb = XLSX.utils.book_new(), ws = XLSX.utils.aoa_to_sheet(aoa);
+  if (widths) ws["!cols"] = widths.map(w => ({ wch: w }));
+  XLSX.utils.book_append_sheet(wb, ws, "Sheet1"); XLSX.writeFile(wb, filename);
+}
+async function readSheet(file) {
+  const wb = XLSX.read(await file.arrayBuffer(), { type: "array" });
+  return XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: "" });
+}
+function pick(row, keys) {
+  for (const k of Object.keys(row)) if (keys.includes(k.trim().toLowerCase())) return row[k];
+  return "";
+}
+function parsePrice(v) { const n = parseFloat(String(v ?? "").replace(/[^0-9.]/g, "")); return isNaN(n) ? null : n; }
+
+boot();
+</script>
+</body>
+</html>
