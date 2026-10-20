@@ -2,66 +2,86 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Hero Board</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Hero Board · Weekly Hero Products</title>
+<meta name="description" content="Weekly hero products for Half Million stores.">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="icon" href="favicon-32.png" type="image/png" sizes="32x32">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#111111">
+<meta name="apple-mobile-web-app-title" content="Hero Board">
 <link rel="stylesheet" href="style.css">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script src="config.js"></script>
 <script src="common.js"></script>
 </head>
 <body>
+<div id="splash" role="status" aria-label="Loading Hero Board">
+  <div class="sp-box"><img class="sp-logo" src="icon.svg" alt=""><div class="sp-name">Hero Board</div><div class="sp-bar"><i></i></div></div>
+</div>
 
-<section id="loginView" class="auth hidden">
-  <form class="auth-card" id="loginForm">
-    <div class="head">
-      <div class="logo lg">½M</div>
-      <h1>Hero Board</h1>
-      <p class="muted small">Sign in</p>
-    </div>
-    <div class="field"><label for="lCode">User ID</label><input id="lCode" placeholder="e.g. HM001" autocomplete="username" autocapitalize="none" required></div>
-    <div class="field"><label for="lPass">Password</label><input id="lPass" type="password" autocomplete="current-password" required></div>
+<!-- SIGN IN (admin and stores) -->
+<section id="loginView" class="hidden">
+  <form class="login-card" id="loginForm">
+    <div class="brand"><img class="logo lg" src="icon.svg" alt="Hero Board"><div><b>Hero Board</b><small>Weekly hero products</small></div></div>
+    <h1>Sign in</h1>
+    <p>Use the User ID and password your admin gave you.</p>
+    <label for="lCode">User ID</label>
+    <input id="lCode" placeholder="e.g. HM001" autocomplete="username" autocapitalize="none" spellcheck="false" required>
+    <label for="lPass">Password</label>
+    <input id="lPass" type="password" autocomplete="current-password" required>
+    <button class="btn block" type="submit" id="lBtn" style="margin-top:20px">Sign in</button>
     <div class="err" id="lErr"></div>
-    <button class="btn big block" type="submit" id="lBtn">Sign in</button>
-    <p class="muted small" style="text-align:center;margin:16px 0 0">Forgot your password? Ask the admin to reset it.</p>
+    <p class="note" style="margin:6px 0 0">Forgot your password? Ask your admin to reset it.</p>
   </form>
 </section>
 
-<div id="appView" class="hidden">
-  <header class="topbar">
-    <div class="wrap">
-      <div class="logo">½M</div>
-      <div><div class="title" id="hStore"></div><div class="sub" id="hCode"></div></div>
-      <div class="spacer"></div>
-      <span class="sub"><span class="dot-live"></span>Live</span>
-      <button class="btn ghost sm" id="logoutBtn">Log out</button>
-    </div>
-  </header>
-  <main class="wrap">
-    <div class="new-flag" id="newFlag">New hero products are here! Please review and acknowledge.</div>
-    <div id="content"></div>
-  </main>
+<!-- STORE APP -->
+<div id="shell" class="hidden">
+  <div class="mobile-top"><div class="brand"><img class="logo" src="icon.svg" alt=""><div><b>Hero Board</b><small id="mStore"></small></div></div><button class="logoutBtn">Sign out</button></div>
+  <div id="app">
+    <aside>
+      <div class="brand"><img class="logo" src="icon.svg" alt=""><div><b>Hero Board</b><small>Weekly hero products</small></div></div>
+      <nav id="nav"></nav>
+      <div class="me"><b id="meName"></b><span id="meCode"></span><br><button class="logoutBtn">Sign out</button></div>
+    </aside>
+    <main id="main">
+      <div class="new-flag" id="newFlag">New hero products are here! Please review and acknowledge.</div>
+      <div id="content"></div>
+    </main>
+  </div>
+  <div class="bottom-nav" id="bnav"></div>
 </div>
 
+<script src="motion.js"></script>
 <script>
-let token = storageGet("hb_store_token"), D = null, lastWeek = storageGet("hb_last_week");
+let token = storageGet("hb_store_token"), D = null, lastWeek = storageGet("hb_last_week"), view = "heroes";
 const BASE = location.href.replace(/[^/]*([?#].*)?$/, "");
+const VIEWS = [["heroes", "This week", ICON.star], ["staff", "Staff", ICON.users]];
 
+// ---------- sign in ----------
 $("#loginForm").onsubmit = async e => {
-  e.preventDefault(); $("#lErr").textContent = ""; $("#lBtn").disabled = true;
+  e.preventDefault(); $("#lErr").textContent = ""; $("#lBtn").disabled = true; $("#lBtn").textContent = "Signing in…";
+  const done = () => { $("#lBtn").disabled = false; $("#lBtn").textContent = "Sign in"; };
   const id = $("#lCode").value.trim();
   if (id.toLowerCase() === "admin") {
     const { error: aErr } = await sb.auth.signInWithPassword({ email: "admin@heroboard.app", password: $("#lPass").value });
-    if (aErr) { $("#lBtn").disabled = false; return ($("#lErr").textContent = aErr.message === "Invalid login credentials" ? "Wrong User ID or password." : aErr.message); }
+    if (aErr) { done(); return ($("#lErr").textContent = aErr.message === "Invalid login credentials" ? "Wrong User ID or password." : aErr.message); }
     return location.replace("admin.html");
   }
   const { data, error } = await sb.rpc("hb_store_login", { p_code: id, p_password: $("#lPass").value });
-  $("#lBtn").disabled = false;
+  done();
   if (error || data.error) return ($("#lErr").textContent = error ? errMsg(error) : data.error);
   token = data.token; storageSet("hb_store_token", token); start();
 };
-$("#logoutBtn").onclick = async () => { await sb.rpc("hb_store_logout", { p_token: token }); storageSet("hb_store_token", null); location.reload(); };
+document.querySelectorAll(".logoutBtn").forEach(b => b.onclick = async () => {
+  b.disabled = true; b.textContent = "Signing out…";
+  try { await Promise.race([sb.rpc("hb_store_logout", { p_token: token }), new Promise(r => setTimeout(r, 3000))]); } catch {}
+  storageSet("hb_store_token", null); location.replace(location.pathname);
+});
 
-function showLogin(msg) { $("#appView").classList.add("hidden"); $("#loginView").classList.remove("hidden"); $("#lErr").textContent = msg || ""; }
+function showLogin(msg) { $("#shell").classList.add("hidden"); $("#loginView").classList.remove("hidden"); $("#lErr").textContent = msg || ""; hideSplash(); }
 
 let started = false;
 async function start() {
@@ -73,73 +93,105 @@ async function start() {
   }
   const ok = await load();
   if (!ok) return;
-  $("#loginView").classList.add("hidden"); $("#appView").classList.remove("hidden");
-  if (!started) { started = true; liveConnect(["hb-all", "hb-store-" + D.store.code], load); }
+  $("#loginView").classList.add("hidden"); $("#shell").classList.remove("hidden");
+  hideSplash();
+  if (!started) { started = true; liveConnect(["hb-all", "hb-store-" + D.store.code], load); go(view, true); }
 }
 async function load() {
   const { data, error } = await sb.rpc("hb_store_home", { p_token: token });
   if (error) {
     if (String(error.message).includes("SESSION_EXPIRED")) { storageSet("hb_store_token", null); token = null; showLogin("Please sign in again."); return false; }
-    toast(errMsg(error), "bad"); return !!D;
+    if (!D) showLogin(errMsg(error)); else toast(errMsg(error), "bad");
+    return !!D;
   }
   const isNew = data.week && String(data.week.id) !== lastWeek;
-  D = data; render();
-  if (isNew && !data.ack) { $("#newFlag").classList.add("show"); }
+  if (D && isNew) view = "heroes";
+  D = data;
+  if (document.activeElement && document.activeElement.id === "totalIn") return true; // don't wipe what they're typing
+  renderNav(); render();
+  if (isNew && !data.ack) $("#newFlag").classList.add("show");
+  if (data.ack) $("#newFlag").classList.remove("show");
   if (data.week) { lastWeek = String(data.week.id); storageSet("hb_last_week", lastWeek); }
   return true;
 }
 
+// ---------- navigation ----------
+function renderNav() {
+  $("#meName").textContent = D.store.name; $("#meCode").textContent = "Store ID " + D.store.code; $("#mStore").textContent = D.store.name;
+  const pending = D.week && !D.ack;
+  const html = VIEWS.map(([k, label, icon]) => `<button data-v="${k}" class="${k === view ? "on" : ""}">${icon}<span>${label}</span>${k === "heroes" && pending ? `<span class="badge">!</span>` : ""}</button>`).join("");
+  $("#nav").querySelectorAll("button").forEach(b => b.remove());
+  $("#nav").insertAdjacentHTML("beforeend", html);
+  $("#bnav").innerHTML = html.replace(/<span class="badge">!<\/span>/g, "");
+  document.querySelectorAll("#nav button, #bnav button").forEach(b => b.onclick = () => go(b.dataset.v));
+  slideIndicator($("#nav"), "nav");
+}
+function go(v, quiet) {
+  view = v; renderNav(); render();
+  $("#main").scrollTop = 0;
+  if (!quiet) animateEnter($("#content"));
+}
+
 function staffLink() { return `${BASE}staff.html?w=${D.week.share_token}&k=${D.store.link_key}`; }
 
+// ---------- views ----------
 function render() {
-  $("#hStore").textContent = D.store.name; $("#hCode").textContent = "Store ID " + D.store.code;
   const w = D.week;
-  if (!w) { $("#content").innerHTML = `<div class="panel empty"><h2 style="margin-bottom:6px">No hero products yet</h2>This page updates by itself when the admin publishes this week's heroes.</div>`; return; }
+  if (!w) {
+    $("#content").innerHTML = `<div class="top"><div><h1>This week</h1><p>${esc(D.store.name)}</p></div><span class="live"><i></i>Live</span></div>
+      <div class="panel empty"><h2 style="margin-bottom:6px">No hero products yet</h2>This page updates by itself when the admin publishes this week's heroes.</div>`;
+    return;
+  }
   const total = D.store.total_staff || 0, n = D.staff.length;
-  $("#content").innerHTML = `
-    <div class="hero-banner">
-      <div><div class="small" style="color:var(--tan);font-weight:700;text-transform:uppercase;letter-spacing:.05em">This week's heroes</div>
-        <div class="wk">${esc(w.title)}</div><div class="dates">${fmtDate(w.start_date)} – ${fmtDate(w.end_date)}</div></div>
-      <div id="ackBox">${D.ack ? `<div class="ack-done">✓ Acknowledged ${fmtDateTime(D.ack)}</div>` : `<button class="btn tan big" id="ackBtn">I acknowledge these hero products</button>`}</div>
-    </div>
-    <div class="panel">${productCards(D.products)}</div>
-
-    <div class="panel ${D.ack ? "" : "hidden"}" id="staffPanel">
-      <div class="panel-head">
-        <div><h2>Staff acknowledgement</h2><div class="muted small">Share the link in your store WhatsApp group. Each staff member opens it and confirms.</div></div>
-        <div class="row">
-          <a class="btn wa" id="waBtn" target="_blank" rel="noopener">Share on WhatsApp</a>
-          <button class="btn ghost" id="copyBtn">Copy link</button>
-        </div>
+  if (view === "heroes") {
+    $("#content").innerHTML = `
+      <div class="top"><div><h1>This week's heroes</h1><p>${esc(D.store.name)} · ${fmtDate(w.start_date)} – ${fmtDate(w.end_date)}</p></div><span class="live"><i></i>Live</span></div>
+      <div class="hero-banner">
+        <div><div class="eyebrow">Hero week</div><div class="wk">${esc(w.title)}</div><div class="dates">${D.products.length} hero product${D.products.length === 1 ? "" : "s"}</div></div>
+        <div>${D.ack ? `<div class="ack-done">${ICON.check.replace("<svg", '<svg width="18" height="18"')} Acknowledged ${fmtDateTime(D.ack)}</div>` : `<button class="btn tan big" id="ackBtn">${ICON.check}I acknowledge these heroes</button>`}</div>
       </div>
-      <div class="grid2">
-        <div class="kpi">
-          <div class="k-label">Staff aware</div>
+      <div class="panel">${productCards(D.products)}</div>
+      ${D.ack ? `<div class="panel row" style="justify-content:space-between"><div><h2>Next: brief your staff</h2><div class="muted small">${n} of ${total || "?"} staff have confirmed.</div></div><button class="btn" id="toStaff">Staff sign-off</button></div>` : ""}`;
+  } else {
+    $("#content").innerHTML = `
+      <div class="top"><div><h1>Staff sign-off</h1><p>${esc(w.title)}</p></div><span class="live"><i></i>Live</span></div>
+      ${!D.ack ? `<div class="panel empty"><h2 style="margin-bottom:6px">Acknowledge first</h2>Review this week's heroes and tap <b>I acknowledge</b>. Then you can share the link with your staff.<div style="margin-top:16px"><button class="btn" id="toHeroes">Go to this week's heroes</button></div></div>` : `
+      <div class="kpis" style="grid-template-columns:repeat(2,minmax(0,1fr))">
+        <div class="kpi"><div class="k-label"><span class="dot" style="background:var(--tan)"></span>Staff aware</div>
           <div class="k-value">${n}<small> / ${total || "—"}</small></div>
-          ${total ? `<div class="meter tan"><i style="width:${Math.min(100, pct(n, total))}%"></i></div><div class="k-foot">${n >= total ? "All staff are aware ✓" : `${total - n} still to go`}</div>` : `<div class="k-foot" style="color:var(--amber)">Set your total staff below so we can track progress.</div>`}
-          <div class="row" style="margin-top:12px"><label for="totalIn" style="margin:0">Total staff in store</label>
-            <input type="number" id="totalIn" min="0" max="500" value="${total || ""}" style="width:90px;padding:6px 8px"><button class="btn sm" id="saveTotal">Save</button></div>
+          ${total ? `<div class="meter tan"><i style="width:${Math.min(100, pct(n, total))}%"></i></div><div class="k-foot">${n >= total ? "All staff are aware ✓" : `${total - n} still to go`}</div>` : `<div class="k-foot" style="color:var(--amber)">Set your total staff so we can track progress.</div>`}
         </div>
-        <div>
-          ${n ? `<ul class="list">${D.staff.map(s => `<li><span><b>${esc(s.staff_name)}</b> <span class="muted small mono">${esc(s.employee_id)}</span></span><span class="muted small">${fmtDateTime(s.acked_at)}</span></li>`).join("")}</ul>` : `<p class="empty">No staff have acknowledged yet.</p>`}
+        <div class="kpi"><div class="k-label"><span class="dot" style="background:var(--teal)"></span>Total staff in store</div>
+          <div class="row" style="margin-top:12px;flex-wrap:nowrap"><input type="number" id="totalIn" min="0" max="500" inputmode="numeric" value="${total || ""}" placeholder="0" style="max-width:110px"><button class="btn" id="saveTotal">Save</button></div>
+          <div class="k-foot">Everyone who works in this store.</div>
         </div>
       </div>
-    </div>`;
+      <div class="panel">
+        <div class="panel-head"><div><h2>Share with your staff</h2><div class="muted small">Send the link to your store WhatsApp group. Each staff member opens it and confirms.</div></div>
+          <div class="row"><a class="btn wa" id="waBtn" target="_blank" rel="noopener">${ICON.wa}Share on WhatsApp</a><button class="btn ghost" id="copyBtn">${ICON.copy}Copy link</button></div></div>
+      </div>
+      <div class="panel">
+        <div class="panel-head"><h2>Who has confirmed <span class="muted">(${n})</span></h2></div>
+        ${n ? `<ul class="list">${D.staff.map(s => `<li><span><b>${esc(s.staff_name)}</b> <span class="muted small mono">${esc(s.employee_id)}</span></span><span class="muted small">${fmtDateTime(s.acked_at)}</span></li>`).join("")}</ul>` : `<p class="empty">No staff have confirmed yet.</p>`}
+      </div>`}`;
+  }
 
   if ($("#ackBtn")) $("#ackBtn").onclick = async () => {
     $("#ackBtn").disabled = true;
     const { error } = await sb.rpc("hb_store_ack", { p_token: token, p_week_id: w.id });
     if (error) { $("#ackBtn").disabled = false; return toast(errMsg(error), "bad"); }
     $("#newFlag").classList.remove("show"); toast("Thank you! Now share the link with your staff.");
-    livePing(["hb-admin"], "ack"); await load();
-    $("#staffPanel").scrollIntoView({ behavior: "smooth", block: "start" });
+    livePing(["hb-admin"], "ack"); await load(); go("staff");
   };
-  if (D.ack) {
+  if ($("#toStaff")) $("#toStaff").onclick = () => go("staff");
+  if ($("#toHeroes")) $("#toHeroes").onclick = () => go("heroes");
+  if ($("#waBtn")) {
     const msg = `*${w.title}* – Hero products for ${D.store.name}\n\nPlease open this link, check this week's hero products and tap "I'm aware":\n${staffLink()}`;
     $("#waBtn").href = "https://wa.me/?text=" + encodeURIComponent(msg);
     $("#copyBtn").onclick = () => navigator.clipboard.writeText(staffLink()).then(() => toast("Link copied"));
     $("#saveTotal").onclick = async () => {
       const v = parseInt($("#totalIn").value || "0", 10);
+      $("#totalIn").blur();
       const { error } = await sb.rpc("hb_store_set_staff", { p_token: token, p_total: isNaN(v) ? 0 : v });
       if (error) return toast(errMsg(error), "bad");
       toast("Saved"); livePing(["hb-admin"], "staff"); load();

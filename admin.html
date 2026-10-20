@@ -2,8 +2,13 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Hero Board Admin</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Hero Board · Admin</title>
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="icon" href="favicon-32.png" type="image/png" sizes="32x32">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#111111">
 <link rel="stylesheet" href="style.css">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -11,63 +16,39 @@
 <script src="common.js"></script>
 </head>
 <body>
+<div id="splash" role="status" aria-label="Loading Hero Board">
+  <div class="sp-box"><img class="sp-logo" src="icon.svg" alt=""><div class="sp-name">Hero Board</div><div class="sp-bar"><i></i></div></div>
+</div>
 
-<!-- LOGIN -->
-<section id="loginView" class="auth hidden">
-  <form class="auth-card" id="loginForm">
-    <div class="head">
-      <div class="logo lg">½M</div>
-      <h1>Hero Board</h1>
-      <p class="muted small">Admin sign in</p>
-    </div>
-    <div class="field"><label for="lEmail">Email</label><input id="lEmail" type="email" autocomplete="username" required></div>
-    <div class="field"><label for="lPass">Password</label><input id="lPass" type="password" autocomplete="current-password" required></div>
-    <div class="err" id="lErr"></div>
-    <button class="btn big block" type="submit">Sign in</button>
-    <p class="muted small" style="text-align:center;margin:16px 0 0">Store managers sign in on the <a href="index.html">store page</a>.</p>
-  </form>
-</section>
-
-<!-- APP -->
-<div id="appView" class="hidden">
-  <header class="topbar">
-    <div class="wrap">
-      <div class="logo">½M</div>
-      <div><div class="title">Hero Board</div><div class="sub">Admin</div></div>
-      <nav class="tabs">
-        <button class="tab on" data-tab="dash">Dashboard</button>
-        <button class="tab" data-tab="weeks">Hero Weeks</button>
-        <button class="tab" data-tab="stores">Stores</button>
-      </nav>
-      <div class="spacer"></div>
-      <span class="sub"><span class="dot-live"></span>Live</span>
-      <button class="btn ghost sm" id="logoutBtn">Log out</button>
-    </div>
-  </header>
-
-  <main class="wrap">
+<div id="shell" class="hidden">
+  <div class="mobile-top"><div class="brand"><img class="logo" src="icon.svg" alt=""><div><b>Hero Board</b><small>Admin</small></div></div><button class="logoutBtn">Sign out</button></div>
+  <div id="app">
+    <aside>
+      <div class="brand"><img class="logo" src="icon.svg" alt=""><div><b>Hero Board</b><small>Weekly hero products</small></div></div>
+      <nav id="nav"></nav>
+      <div class="me"><b>Admin</b><span>Hero Board admin</span><br><button class="logoutBtn">Sign out</button></div>
+    </aside>
+    <main id="main">
     <!-- DASHBOARD -->
     <section id="tab-dash">
-      <div class="panel-head">
-        <div>
-          <h1 id="dTitle">Dashboard</h1>
-          <div class="muted small" id="dSub"></div>
-        </div>
+      <div class="top">
+        <div><h1 id="dTitle">Dashboard</h1><p id="dSub"></p></div>
         <div class="row">
-          <select id="dWeek" style="width:auto;min-width:220px"></select>
-          <button class="btn ghost" id="exportBtn">Export Excel</button>
+          <span class="live"><i></i>Live</span>
+          <select id="dWeek" style="width:auto;min-width:200px"></select>
+          <button class="btn ghost" id="exportBtn"></button>
         </div>
       </div>
-      <div id="dEmpty" class="panel empty hidden">No published hero week yet. Go to <b>Hero Weeks</b> to create and publish one.</div>
+      <div id="dEmpty" class="panel empty hidden"><h2 style="margin-bottom:6px">No published hero week yet</h2>Go to <b>Hero Weeks</b> to create and publish one.</div>
       <div id="dBody">
         <div class="kpis" id="kpis"></div>
         <div class="dash-grid">
           <div class="panel">
             <div class="panel-head">
               <h2>Stores</h2>
-              <div class="row">
-                <input id="dSearch" placeholder="Search store…" style="width:180px">
-                <select id="dFilter" style="width:auto">
+              <div class="filters" style="flex:1;justify-content:flex-end">
+                <input id="dSearch" type="search" placeholder="Search store…">
+                <select id="dFilter">
                   <option value="all">All stores</option>
                   <option value="Pending">Not acknowledged</option>
                   <option value="On time">On time</option>
@@ -82,17 +63,17 @@
                   <th class="sort" data-sort="code">Store ID</th>
                   <th class="sort" data-sort="name">Store</th>
                   <th class="sort" data-sort="status">Manager</th>
-                  <th class="sort" data-sort="hours">Acknowledged</th>
+                  <th class="sort hm" data-sort="hours">Acknowledged</th>
                   <th class="sort" data-sort="staffPct">Staff aware</th>
                 </tr></thead>
                 <tbody id="dRows"></tbody>
               </table>
             </div>
-            <p class="muted small" style="margin:10px 2px 0">Click a store to see which staff acknowledged. "On time" means within 24 hours of publishing.</p>
+            <p class="note" style="margin:10px 2px 0">Tap a store to see which staff confirmed. "On time" means within 24 hours of publishing.</p>
           </div>
-          <div>
+          <div class="side">
             <div class="panel">
-              <div class="panel-head"><h2>Needs follow-up</h2><button class="btn ghost sm" id="copyFollow">Copy for WhatsApp</button></div>
+              <div class="panel-head"><h2>Needs follow-up</h2><button class="btn ghost sm" id="copyFollow"></button></div>
               <ul class="list" id="follow"></ul>
             </div>
             <div class="panel">
@@ -108,35 +89,32 @@
 
     <!-- HERO WEEKS -->
     <section id="tab-weeks" class="hidden">
+      <div class="top"><div><h1>Hero Weeks</h1><p>Create a week, add its hero products, then publish it to every store.</p></div><button class="btn" id="newWeekBtn"></button></div>
       <div class="weeks-layout">
-        <div>
-          <button class="btn block" id="newWeekBtn" style="margin-bottom:12px">+ New hero week</button>
-          <div id="weekList"></div>
-        </div>
+        <div id="weekList"></div>
         <div id="weekEditor"></div>
       </div>
     </section>
 
     <!-- STORES -->
     <section id="tab-stores" class="hidden">
+      <div class="top"><div><h1>Stores</h1><p>Store logins. Each store signs in with its Store ID and password.</p></div><button class="btn" id="dlLogins"></button></div>
       <div class="panel">
         <div class="panel-head"><h2>Add stores</h2></div>
         <div class="grid2">
           <div>
             <ol class="steps">
-              <li>Download the template. It has one column: <b>Store Name</b>.</li>
-              <li>Add one store name per row and save the file.</li>
-              <li>Upload it here. Each new store gets a Store ID and password.</li>
+              <li><span>Download the template. It has one column: <b>Store Name</b>.</span></li>
+              <li><span>Add one store name per row and save the file.</span></li>
+              <li><span>Upload it here. Each new store gets a Store ID and password.</span></li>
             </ol>
-            <button class="btn ghost" id="storeTplBtn">Download store template</button>
+            <button class="btn ghost" id="storeTplBtn"></button>
           </div>
           <div>
-            <label class="dropzone" for="storeFile" id="storeDrop">
-              <b>Upload store list</b><br><span class="muted small">Excel (.xlsx) or CSV</span>
-            </label>
+            <label class="dropzone" for="storeFile" id="storeDrop"></label>
             <input type="file" id="storeFile" accept=".xlsx,.xls,.csv" class="hidden">
-            <div class="row" style="margin-top:12px">
-              <input id="oneStore" placeholder="Or type one store name" style="flex:1">
+            <div class="row" style="margin-top:12px;flex-wrap:nowrap">
+              <input id="oneStore" placeholder="Or type one store name">
               <button class="btn" id="addOneStore">Add</button>
             </div>
           </div>
@@ -146,12 +124,11 @@
       <div class="panel">
         <div class="panel-head">
           <div><h2>All stores <span class="muted" id="storeCount"></span></h2>
-            <div class="muted small">Store login page: <span class="mono" id="storeLink"></span> <button class="btn ghost sm" id="copyStoreLink">Copy</button></div>
+            <div class="note">Sign-in page: <span class="mono" id="storeLink"></span> <button class="btn ghost sm" id="copyStoreLink">Copy</button></div>
           </div>
-          <div class="row">
-            <input id="sSearch" placeholder="Search…" style="width:180px">
-            <button class="btn ghost" id="togglePw">Show passwords</button>
-            <button class="btn" id="dlLogins">Download all logins</button>
+          <div class="filters" style="flex:1;justify-content:flex-end">
+            <input id="sSearch" type="search" placeholder="Search…">
+            <button class="btn ghost" id="togglePw" style="flex:none"></button>
           </div>
         </div>
         <div class="tbl-wrap">
@@ -162,13 +139,16 @@
         </div>
       </div>
     </section>
-  </main>
+    </main>
+  </div>
+  <div class="bottom-nav" id="bnav"></div>
 </div>
 
 <div class="overlay" id="overlay"></div>
-<aside class="drawer" id="drawer"><div class="dh" id="drawerHead"></div><div class="db" id="drawerBody"></div></aside>
+<div class="drawer" id="drawer"><div class="dh" id="drawerHead"></div><div class="db" id="drawerBody"></div></div>
 <div class="modal" id="modal"></div>
 
+<script src="motion.js"></script>
 <script>
 const S = { weeks: [], stores: [], storeAcks: [], counts: {}, dashWeek: null, editWeek: null, products: [], sort: { key: "status", dir: 1 }, showPw: false, tab: "dash" };
 const BASE = location.href.replace(/[^/]*([?#].*)?$/, "");
@@ -177,29 +157,51 @@ const BASE = location.href.replace(/[^/]*([?#].*)?$/, "");
 async function boot() {
   const { data } = await sb.auth.getSession();
   if (!data.session) return showLogin();
-  const { data: rows } = await sb.from("hb_admins").select("user_id").eq("user_id", data.session.user.id);
+  const { data: rows, error } = await sb.from("hb_admins").select("user_id").eq("user_id", data.session.user.id);
+  if (error) { hideSplash(); $("#shell").classList.remove("hidden"); $("#main").innerHTML = `<div class="panel empty"><h2 style="margin-bottom:6px">Couldn't connect</h2>Check your internet connection and try again.<div style="margin-top:16px"><button class="btn" onclick="location.reload()">Try again</button></div></div>`; return; }
   if (!rows || !rows.length) { await sb.auth.signOut({ scope: "local" }); return showLogin("This account is not a Hero Board admin."); }
-  $("#loginView").classList.add("hidden"); $("#appView").classList.remove("hidden");
-  $("#storeLink").textContent = BASE + "index.html";
+  $("#shell").classList.remove("hidden");
+  $("#storeLink").textContent = BASE;
+  fillStatic();
+  go(S.tab, true);
+  $("#kpis").innerHTML = "<div class='skel' style='height:120px'></div>".repeat(4);
   await loadAll();
+  hideSplash();
+  countUpOnce($("#kpis"));
   liveConnect(["hb-admin"], refreshLive, 3000);
 }
 function showLogin(msg) { location.replace("index.html" + (msg ? "?m=notadmin" : "")); }
-$("#loginForm").onsubmit = async e => {
-  e.preventDefault(); $("#lErr").textContent = "";
-  const { error } = await sb.auth.signInWithPassword({ email: $("#lEmail").value.trim(), password: $("#lPass").value });
-  if (error) return ($("#lErr").textContent = error.message === "Invalid login credentials" ? "Wrong email or password." : error.message);
-  boot();
-};
-$("#logoutBtn").onclick = async () => { await sb.auth.signOut({ scope: "local" }); location.replace("index.html"); };
-
-// ---------- tabs ----------
-document.querySelectorAll(".tab").forEach(b => b.onclick = () => {
-  S.tab = b.dataset.tab;
-  document.querySelectorAll(".tab").forEach(x => x.classList.toggle("on", x === b));
-  ["dash", "weeks", "stores"].forEach(t => $("#tab-" + t).classList.toggle("hidden", t !== S.tab));
-  render();
+document.querySelectorAll(".logoutBtn").forEach(b => b.onclick = async () => {
+  b.disabled = true; b.textContent = "Signing out…";
+  try { await Promise.race([sb.auth.signOut({ scope: "local" }), new Promise(r => setTimeout(r, 3000))]); } catch {}
+  location.replace("index.html");
 });
+function fillStatic() {
+  $("#exportBtn").innerHTML = ICON.down + '<span class="hm">Export Excel</span>';
+  $("#copyFollow").innerHTML = ICON.copy + "Copy for WhatsApp";
+  $("#newWeekBtn").innerHTML = ICON.plus + "New hero week";
+  $("#dlLogins").innerHTML = ICON.down + "Download all logins";
+  $("#storeTplBtn").innerHTML = ICON.down + "Download store template";
+  $("#storeDrop").innerHTML = ICON.up + '<b>Upload store list</b><br><span class="note">Drop the Excel file here or tap to choose (.xlsx or .csv)</span>';
+}
+
+// ---------- navigation ----------
+const VIEWS = [["dash", "Dashboard", ICON.dash], ["weeks", "Hero Weeks", ICON.star], ["stores", "Stores", ICON.store]];
+function renderNav() {
+  const html = VIEWS.map(([k, label, icon]) => `<button data-tab="${k}" class="${k === S.tab ? "on" : ""}">${icon}<span>${label}</span></button>`).join("");
+  $("#nav").querySelectorAll("button").forEach(b => b.remove());
+  $("#nav").insertAdjacentHTML("beforeend", html);
+  $("#bnav").innerHTML = html;
+  document.querySelectorAll("#nav button, #bnav button").forEach(b => b.onclick = () => go(b.dataset.tab));
+  slideIndicator($("#nav"), "nav");
+}
+function go(tab, quiet) {
+  S.tab = tab; renderNav();
+  ["dash", "weeks", "stores"].forEach(t => $("#tab-" + t).classList.toggle("hidden", t !== S.tab));
+  $("#main").scrollTop = 0;
+  render();
+  if (!quiet) animateEnter($("#tab-" + tab));
+}
 
 // ---------- data ----------
 async function fetchAll(q) {
@@ -305,13 +307,13 @@ function renderDash() {
   const noTotal = N - withTotal.length;
 
   $("#kpis").innerHTML = `
-    <div class="kpi"><div class="k-label">Stores acknowledged</div><div class="k-value">${acked.length}<small> / ${N}</small></div>
+    <div class="kpi"><div class="k-label"><span class="dot" style="background:var(--teal)"></span>Stores acknowledged</div><div class="k-value">${acked.length}<small> / ${N}</small></div>
       <div class="meter"><i style="width:${pct(acked.length, N)}%"></i></div><div class="k-foot">${pct(acked.length, N)}% · ${onTime.length} on time · ${acked.length - onTime.length} late</div></div>
-    <div class="kpi"><div class="k-label">Staff aware</div><div class="k-value">${staffAware}<small> / ${staffTotal || "—"}</small></div>
+    <div class="kpi"><div class="k-label"><span class="dot" style="background:var(--tan)"></span>Staff aware</div><div class="k-value">${staffAware}<small> / ${staffTotal || "—"}</small></div>
       <div class="meter tan"><i style="width:${pct(staffAware, staffTotal)}%"></i></div><div class="k-foot">${staffTotal ? pct(staffAware, staffTotal) + "% of staff" : "Stores haven't set staff count"}${allStaff > staffAware ? ` · ${allStaff} sign-offs total` : ""}</div></div>
-    <div class="kpi"><div class="k-label">Fully briefed stores</div><div class="k-value">${full}<small> / ${N}</small></div>
+    <div class="kpi"><div class="k-label"><span class="dot" style="background:var(--teal-d)"></span>Fully briefed stores</div><div class="k-value">${full}<small> / ${N}</small></div>
       <div class="meter"><i style="width:${pct(full, N)}%"></i></div><div class="k-foot">All staff acknowledged${noTotal ? ` · ${noTotal} store${noTotal > 1 ? "s" : ""} without staff count` : ""}</div></div>
-    <div class="kpi"><div class="k-label">Not acknowledged</div><div class="k-value" style="color:${N - acked.length ? "var(--red)" : "var(--green)"}">${N - acked.length}</div>
+    <div class="kpi"><div class="k-label"><span class="dot" style="background:var(--red)"></span>Not acknowledged</div><div class="k-value" style="color:${N - acked.length ? "var(--red)" : "var(--green)"}">${N - acked.length}</div>
       <div class="k-foot">${N - acked.length ? "Stores still pending" : "Every store has acknowledged"}</div></div>`;
 
   // table
@@ -330,7 +332,7 @@ function renderDash() {
       <td class="mono">${esc(r.code)}</td>
       <td><b>${esc(r.name)}</b></td>
       <td>${chip(r.status)}</td>
-      <td>${r.ack ? `${fmtDateTime(r.ack)}<div class="muted small">${ago(r.hours)} after publish</div>` : `<span class="muted">—</span>`}</td>
+      <td class="hm nowrap">${r.ack ? `${fmtDateTime(r.ack)}<div class="muted small">${ago(r.hours)} after publish</div>` : `<span class="muted">—</span>`}</td>
       <td>${r.total ? `<div class="mini-meter"><div class="meter tan"><i style="width:${r.staffPct}%"></i></div><b>${r.staffN}/${r.total}</b></div>` : r.staffN ? `<b>${r.staffN}</b> <span class="muted small">(staff count not set)</span>` : `<span class="muted">—</span>`}</td>
     </tr>`).join("") : `<tr><td colspan="5" class="empty">${S.stores.length ? "No stores match." : "No stores yet. Add them in the Stores tab."}</td></tr>`;
   document.querySelectorAll("th.sort").forEach(th => th.textContent = th.textContent.replace(/ [▲▼]$/, "") + (th.dataset.sort === k ? (d > 0 ? " ▲" : " ▼") : ""));
@@ -391,7 +393,7 @@ async function openStore(id) {
       ${staff.map((s, i) => `<tr><td class="muted">${i + 1}</td><td><b>${esc(s.staff_name)}</b></td><td class="mono">${esc(s.employee_id)}</td><td class="small">${fmtDateTime(s.acked_at)}</td></tr>`).join("")}
     </tbody></table></div>` : `<p class="empty">No staff have acknowledged yet.</p>`}
     <h3 style="margin:18px 0 8px">Staff link for this store</h3>
-    <div class="row"><input readonly value="${esc(link)}" class="mono small" style="flex:1"><button class="btn ghost sm" id="cpStaffLink">Copy</button></div>`;
+    <div class="row"><input readonly value="${esc(link)}" class="mono small" style="flex:1"><button class="btn ghost sm" id="cpStaffLink">${ICON.copy}Copy</button></div>`;
   $("#cpStaffLink").onclick = () => navigator.clipboard.writeText(link).then(() => toast("Link copied"));
 }
 function closeAll() { ["#overlay", "#drawer", "#modal"].forEach(s => $(s).classList.remove("show")); }
@@ -450,17 +452,17 @@ function renderWeeks() {
     <div class="panel">
       <div class="panel-head"><h2>Hero products <span class="muted">(${S.products.length})</span></h2>
         <div class="row">
-          <button class="btn ghost sm" id="prodTplBtn">Product template</button>
-          <label class="btn ghost sm" for="prodFile" style="margin:0;text-transform:none;letter-spacing:0;font-size:13px;color:var(--ink)">Upload products</label>
+          <button class="btn ghost sm" id="prodTplBtn">${ICON.down}Product template</button>
+          <label class="btn ghost sm" for="prodFile">${ICON.up}Upload products</label>
           <input type="file" id="prodFile" accept=".xlsx,.xls,.csv" class="hidden">
-          <button class="btn sm" id="addProdBtn">+ Add product</button>
+          <button class="btn sm" id="addProdBtn">${ICON.plus}Add product</button>
         </div>
       </div>
       ${S.products.length ? `<div class="cards">${S.products.map(p => `
         <article class="pcard">
           <div class="pimg">${p.photo_url ? `<img src="${esc(p.photo_url)}" alt="">` : `<span>½M</span>`}</div>
           <div class="pbody"><h3>${esc(p.name)}</h3>${p.price != null ? `<div class="price">${fmtPrice(p.price)}</div>` : ""}${p.description ? `<p>${esc(p.description)}</p>` : ""}${!p.photo_url ? `<p class="small" style="color:var(--amber)">No photo yet</p>` : ""}</div>
-          <div class="pactions"><button class="btn ghost sm" data-edit="${p.id}">Edit</button><button class="btn danger sm" data-del="${p.id}">Remove</button></div>
+          <div class="pactions"><button class="btn ghost sm" data-edit="${p.id}">${ICON.edit}Edit</button><button class="icon-btn" title="Remove" aria-label="Remove" data-del="${p.id}">${ICON.trash}</button></div>
         </article>`).join("")}</div>` : `<div class="empty">No products yet. Add them one by one, or upload the product template.</div>`}
     </div>`;
   $("#saveWeekBtn").onclick = async () => {
@@ -580,7 +582,7 @@ function renderStores() {
   const q = $("#sSearch").value.trim().toLowerCase();
   const list = S.stores.filter(s => !q || s.name.toLowerCase().includes(q) || s.code.toLowerCase().includes(q));
   $("#storeCount").textContent = `(${S.stores.length})`;
-  $("#togglePw").textContent = S.showPw ? "Hide passwords" : "Show passwords";
+  $("#togglePw").innerHTML = ICON.eye + (S.showPw ? "Hide passwords" : "Show passwords");
   $("#dlLogins").disabled = !S.stores.length;
   $("#sRows").innerHTML = list.length ? list.map(s => `
     <tr>
@@ -588,7 +590,7 @@ function renderStores() {
       <td>${esc(s.name)}${s.locked_until && new Date(s.locked_until) > new Date() ? ` <span class="chip pend" title="Too many wrong passwords. Reset password to unlock now.">Locked</span>` : ""}</td>
       <td class="mono">${S.showPw ? esc(s.pass_plain) : "••••••"}</td>
       <td><input type="number" min="0" max="500" value="${s.total_staff || ""}" placeholder="—" data-staff="${s.id}" style="width:80px;padding:6px 8px"></td>
-      <td style="text-align:right;white-space:nowrap"><button class="btn ghost sm" data-reset="${s.id}">Reset password</button> <button class="btn danger sm" data-sdel="${s.id}">Delete</button></td>
+      <td style="text-align:right;white-space:nowrap"><button class="btn ghost sm" data-reset="${s.id}">${ICON.key}<span class="hm">Reset password</span></button> <button class="icon-btn" title="Delete store" aria-label="Delete store" data-sdel="${s.id}" style="display:inline-block;vertical-align:middle">${ICON.trash}</button></td>
     </tr>`).join("") : `<tr><td colspan="5" class="empty">${S.stores.length ? "No stores match." : "No stores yet. Download the template, add your store names and upload it."}</td></tr>`;
   $("#sRows").querySelectorAll("[data-staff]").forEach(i => i.onchange = async () => {
     const v = parseInt(i.value || "0", 10);
@@ -638,7 +640,7 @@ function showLogins(list, title) {
     <div class="tbl-wrap" style="max-height:50vh"><table><thead><tr><th>Store ID</th><th>Store</th><th>Password</th><th></th></tr></thead><tbody>
       ${list.map(x => `<tr><td class="mono"><b>${esc(x.code)}</b></td><td>${esc(x.name)}</td><td class="mono">${esc(x.password)}</td><td>${x.created ? `<span class="chip ok">New</span>` : `<span class="chip draft">Existing</span>`}</td></tr>`).join("")}
     </tbody></table></div>
-    <div class="row" style="margin-top:14px"><button class="btn" id="dlNew">Download these logins</button><button class="btn ghost" onclick="closeAll()">Done</button></div>`;
+    <div class="row" style="margin-top:14px"><button class="btn" id="dlNew">${ICON.down}Download these logins</button><button class="btn ghost" onclick="closeAll()">Done</button></div>`;
   $("#overlay").classList.add("show"); $("#modal").classList.add("show");
   $("#dlNew").onclick = () => downloadLogins(list);
 }
