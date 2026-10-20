@@ -56,7 +56,7 @@ $("#loginForm").onsubmit = async e => {
   }
   const { data, error } = await sb.rpc("hb_store_login", { p_code: id, p_password: $("#lPass").value });
   $("#lBtn").disabled = false;
-  if (error) return ($("#lErr").textContent = errMsg(error));
+  if (error || data.error) return ($("#lErr").textContent = error ? errMsg(error) : data.error);
   token = data.token; storageSet("hb_store_token", token); start();
 };
 $("#logoutBtn").onclick = async () => { await sb.rpc("hb_store_logout", { p_token: token }); storageSet("hb_store_token", null); location.reload(); };
@@ -74,7 +74,7 @@ async function start() {
   const ok = await load();
   if (!ok) return;
   $("#loginView").classList.add("hidden"); $("#appView").classList.remove("hidden");
-  if (!started) { started = true; liveConnect(load); }
+  if (!started) { started = true; liveConnect(["hb-all", "hb-store-" + D.store.code], load); }
 }
 async function load() {
   const { data, error } = await sb.rpc("hb_store_home", { p_token: token });
@@ -89,7 +89,7 @@ async function load() {
   return true;
 }
 
-function staffLink() { return `${BASE}staff.html?w=${D.week.share_token}&s=${encodeURIComponent(D.store.code)}`; }
+function staffLink() { return `${BASE}staff.html?w=${D.week.share_token}&k=${D.store.link_key}`; }
 
 function render() {
   $("#hStore").textContent = D.store.name; $("#hCode").textContent = "Store ID " + D.store.code;
@@ -131,7 +131,7 @@ function render() {
     const { error } = await sb.rpc("hb_store_ack", { p_token: token, p_week_id: w.id });
     if (error) { $("#ackBtn").disabled = false; return toast(errMsg(error), "bad"); }
     $("#newFlag").classList.remove("show"); toast("Thank you! Now share the link with your staff.");
-    livePing("ack"); await load();
+    livePing(["hb-admin"], "ack"); await load();
     $("#staffPanel").scrollIntoView({ behavior: "smooth", block: "start" });
   };
   if (D.ack) {
@@ -142,7 +142,7 @@ function render() {
       const v = parseInt($("#totalIn").value || "0", 10);
       const { error } = await sb.rpc("hb_store_set_staff", { p_token: token, p_total: isNaN(v) ? 0 : v });
       if (error) return toast(errMsg(error), "bad");
-      toast("Saved"); livePing("staff"); load();
+      toast("Saved"); livePing(["hb-admin"], "staff"); load();
     };
   }
 }

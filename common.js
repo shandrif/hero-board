@@ -33,18 +33,21 @@ function toast(msg, kind = "ok") {
 function storageGet(k) { try { return localStorage.getItem(k); } catch { return null; } }
 function storageSet(k, v) { try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k, v); } catch {} }
 
-// Live updates: one shared broadcast channel. Any change pings it; listeners refetch.
-let hbChannel = null;
-function liveConnect(onPing) {
-  hbChannel = sb.channel("hero-board-live", { config: { broadcast: { self: false } } });
+// Live updates over small broadcast channels:
+//   hb-all          → every store (new week published / products changed)
+//   hb-admin        → admin dashboard (a store or staff acknowledged)
+//   hb-store-<CODE> → one store (its own staff acknowledged)
+const hbChannels = {};
+function hbChannel(name) { return hbChannels[name] || (hbChannels[name] = sb.channel(name)); }
+function liveConnect(names, onPing, delay = 1500) {
   let t = null;
-  hbChannel.on("broadcast", { event: "refresh" }, () => { clearTimeout(t); t = setTimeout(onPing, 400); });
-  hbChannel.subscribe();
-  setInterval(onPing, 30000); // safety net
-  document.addEventListener("visibilitychange", () => { if (!document.hidden) onPing(); });
+  const fire = () => { clearTimeout(t); t = setTimeout(onPing, delay); };
+  names.forEach(n => hbChannel(n).on("broadcast", { event: "refresh" }, fire).subscribe());
+  setInterval(() => { if (!document.hidden) onPing(); }, 120000); // safety net every 2 min, only while the page is open on screen
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) fire(); });
 }
-function livePing(what) {
-  if (hbChannel) hbChannel.send({ type: "broadcast", event: "refresh", payload: { what } });
+function livePing(names, what) {
+  names.forEach(n => hbChannel(n).send({ type: "broadcast", event: "refresh", payload: { what } }).catch(() => {}));
 }
 
 function logoHTML() { return `<div class="logo" aria-label="Half Million">½M</div>`; }

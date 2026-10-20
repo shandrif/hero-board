@@ -170,7 +170,7 @@
 <div class="modal" id="modal"></div>
 
 <script>
-const S = { weeks: [], stores: [], storeAcks: [], staffAcks: [], dashWeek: null, editWeek: null, products: [], sort: { key: "status", dir: 1 }, showPw: false, tab: "dash" };
+const S = { weeks: [], stores: [], storeAcks: [], counts: {}, dashWeek: null, editWeek: null, products: [], sort: { key: "status", dir: 1 }, showPw: false, tab: "dash" };
 const BASE = location.href.replace(/[^/]*([?#].*)?$/, "");
 
 // ---------- auth ----------
@@ -182,7 +182,7 @@ async function boot() {
   $("#loginView").classList.add("hidden"); $("#appView").classList.remove("hidden");
   $("#storeLink").textContent = BASE + "index.html";
   await loadAll();
-  liveConnect(() => loadAll(true));
+  liveConnect(["hb-admin"], refreshLive, 3000);
 }
 function showLogin(msg) { location.replace("index.html" + (msg ? "?m=notadmin" : "")); }
 $("#loginForm").onsubmit = async e => {
@@ -214,22 +214,45 @@ async function loadAll(quiet) {
   try {
     const [weeks, stores] = await Promise.all([
       fetchAll(() => sb.from("hb_weeks").select("*").order("created_at", { ascending: false })),
-      fetchAll(() => sb.from("hb_stores").select("id,code,name,pass_plain,total_staff,created_at").order("code")),
+      fetchAll(() => sb.from("hb_stores").select("id,code,name,pass_plain,total_staff,link_key,locked_until,created_at").order("code")),
     ]);
     S.weeks = weeks; S.stores = stores;
-    const recent = publishedWeeks().slice(0, 8).map(w => w.id);
-    const ids = recent.length ? recent : [-1];
-    const [sa, st] = await Promise.all([
-      fetchAll(() => sb.from("hb_store_acks").select("week_id,store_id,acked_at").in("week_id", ids)),
-      fetchAll(() => sb.from("hb_staff_acks").select("id,week_id,store_id,employee_id,staff_name,acked_at").in("week_id", ids)),
-    ]);
-    S.storeAcks = sa; S.staffAcks = st;
     if (!S.dashWeek || !S.weeks.find(w => w.id === S.dashWeek && w.published)) S.dashWeek = publishedWeeks()[0]?.id || null;
     if (S.editWeek && !S.weeks.find(w => w.id === S.editWeek)) S.editWeek = null;
     if (!S.editWeek) S.editWeek = S.weeks[0]?.id || null;
-    if (S.editWeek) await loadProducts();
+    await Promise.all([loadAcks(publishedWeeks().slice(0, 8).map(w => w.id), true), S.editWeek ? loadProducts() : null]);
     render();
   } catch (e) { if (!quiet) toast(errMsg(e), "bad"); }
+}
+// Acknowledgements: store acks + per-store staff COUNTS only (names are fetched when you open a store or export)
+async function loadAcks(ids, replace) {
+  ids = [...new Set(ids.filter(Boolean))];
+  if (!ids.length) { if (replace) { S.storeAcks = []; S.counts = {}; } return; }
+  const [sa, cnt] = await Promise.all([
+    fetchAll(() => sb.from("hb_store_acks").select("week_id,store_id,acked_at").in("week_id", ids)),
+    sb.rpc("hb_admin_staff_counts", { p_week_ids: ids }).then(r => { if (r.error) throw r.error; return r.data; }),
+  ]);
+  if (replace) { S.storeAcks = []; S.counts = {}; }
+  S.storeAcks = S.storeAcks.filter(a => !ids.includes(a.week_id)).concat(sa);
+  Object.keys(S.counts).forEach(k => { if (ids.includes(+k.split(":")[0])) delete S.counts[k]; });
+  cnt.forEach(c => (S.counts[c.week_id + ":" + c.store_id] = c.n));
+}
+// Live refresh: only the week on screen + the current week, plus staff totals (small)
+let refreshing = false;
+async function refreshLive() {
+  if (refreshing || !S.weeks.length) return; refreshing = true;
+  try {
+    const [, st] = await Promise.all([
+      loadAcks([S.dashWeek, currentWeekId()]),
+      sb.from("hb_stores").select("id,total_staff"),
+    ]);
+    (st.data || []).forEach(x => { const s = S.stores.find(y => y.id === x.id); if (s) s.total_staff = x.total_staff; });
+    if (S.tab === "dash") renderDash(); else if (S.tab === "weeks") renderWeeks();
+  } catch {} finally { refreshing = false; }
+}
+async function staffList(weekId, storeId) {
+  let q = () => { let x = sb.from("hb_staff_acks").select("store_id,employee_id,staff_name,acked_at").eq("week_id", weekId).order("acked_at"); return storeId ? x.eq("store_id", storeId) : x; };
+  return fetchAll(q);
 }
 function publishedWeeks() { return S.weeks.filter(w => w.published).sort((a, b) => new Date(b.published_at) - new Date(a.published_at)); }
 function currentWeekId() { return publishedWeeks()[0]?.id; }
@@ -248,13 +271,14 @@ function render() {
 function weekRows(weekId) {
   const w = S.weeks.find(x => x.id === weekId);
   const pub = w?.published_at ? new Date(w.published_at) : null;
+  const acks = new Map(S.storeAcks.filter(x => x.week_id === weekId).map(x => [x.store_id, x]));
   return S.stores.map(s => {
-    const a = S.storeAcks.find(x => x.week_id === weekId && x.store_id === s.id);
+    const a = acks.get(s.id);
     const hours = a && pub ? (new Date(a.acked_at) - pub) / 36e5 : null;
     const status = !a ? "Pending" : hours <= 24 ? "On time" : "Late";
-    const staff = S.staffAcks.filter(x => x.week_id === weekId && x.store_id === s.id);
+    const staffN = S.counts[weekId + ":" + s.id] || 0;
     const total = s.total_staff || 0;
-    return { ...s, ack: a?.acked_at || null, hours, status, staff, staffN: staff.length, total, staffPct: total ? Math.min(100, pct(staff.length, total)) : (staff.length ? -1 : -2) };
+    return { ...s, ack: a?.acked_at || null, hours, status, staffN, total, staffPct: total ? Math.min(100, pct(staffN, total)) : (staffN ? -1 : -2) };
   });
 }
 function chip(st) { return `<span class="chip ${st === "On time" ? "ok" : st === "Late" ? "late" : "pend"}">${st === "Pending" ? "Not acknowledged" : st}</span>`; }
@@ -334,7 +358,7 @@ function renderDash() {
       <div class="lbl" style="${x.id === S.dashWeek ? "color:#000;font-weight:700" : ""}">${esc(x.title)}</div></div>`;
   }).join("");
 }
-$("#dWeek").onchange = e => { S.dashWeek = +e.target.value; renderDash(); };
+$("#dWeek").onchange = async e => { S.dashWeek = +e.target.value; if (!S.storeAcks.some(a => a.week_id === S.dashWeek)) { try { await loadAcks([S.dashWeek]); } catch {} } renderDash(); };
 $("#dSearch").oninput = renderDash; $("#dFilter").onchange = renderDash;
 document.querySelectorAll("th.sort").forEach(th => th.onclick = () => {
   S.sort = { key: th.dataset.sort, dir: S.sort.key === th.dataset.sort ? -S.sort.dir : 1 }; renderDash();
@@ -349,11 +373,14 @@ $("#copyFollow").onclick = () => {
   navigator.clipboard.writeText(lines.join("\n")).then(() => toast("Copied. Paste it in WhatsApp."));
 };
 
-function openStore(id) {
+async function openStore(id) {
   const w = S.weeks.find(x => x.id === S.dashWeek), r = weekRows(w.id).find(x => x.id === id);
-  const link = `${BASE}staff.html?w=${w.share_token}&s=${encodeURIComponent(r.code)}`;
+  const link = `${BASE}staff.html?w=${w.share_token}&k=${r.link_key}`;
   $("#drawerHead").innerHTML = `<div><h2>${esc(r.name)}</h2><div class="muted small"><span class="mono">${esc(r.code)}</span> · ${esc(w.title)}</div></div><button class="x" onclick="closeAll()">×</button>`;
-  const staff = [...r.staff].sort((a, b) => new Date(a.acked_at) - new Date(b.acked_at));
+  $("#drawerBody").innerHTML = `<p class="empty">Loading…</p>`; $("#overlay").classList.add("show"); $("#drawer").classList.add("show");
+  let staff = [];
+  try { staff = await staffList(w.id, r.id); } catch (e) { toast(errMsg(e), "bad"); }
+  if (!$("#drawer").classList.contains("show")) return;
   $("#drawerBody").innerHTML = `
     <div class="grid2" style="margin-bottom:16px">
       <div class="kpi"><div class="k-label">Manager</div><div style="margin-top:8px">${chip(r.status)}</div><div class="k-foot">${r.ack ? fmtDateTime(r.ack) : "Not yet"}</div></div>
@@ -366,19 +393,21 @@ function openStore(id) {
     <h3 style="margin:18px 0 8px">Staff link for this store</h3>
     <div class="row"><input readonly value="${esc(link)}" class="mono small" style="flex:1"><button class="btn ghost sm" id="cpStaffLink">Copy</button></div>`;
   $("#cpStaffLink").onclick = () => navigator.clipboard.writeText(link).then(() => toast("Link copied"));
-  $("#overlay").classList.add("show"); $("#drawer").classList.add("show");
 }
 function closeAll() { ["#overlay", "#drawer", "#modal"].forEach(s => $(s).classList.remove("show")); }
 $("#overlay").onclick = closeAll;
 document.addEventListener("keydown", e => { if (e.key === "Escape") closeAll(); });
 
-$("#exportBtn").onclick = () => {
+$("#exportBtn").onclick = async () => {
   const w = S.weeks.find(x => x.id === S.dashWeek), rows = weekRows(w.id);
   const s1 = rows.map(r => ({ "Store ID": r.code, "Store": r.name, "Manager status": r.status === "Pending" ? "Not acknowledged" : r.status,
     "Acknowledged at": r.ack ? fmtDateTime(r.ack) : "", "Hours after publish": r.hours == null ? "" : Math.round(r.hours * 10) / 10,
     "Staff aware": r.staffN, "Total staff": r.total || "", "Staff aware %": r.total ? Math.min(100, pct(r.staffN, r.total)) : "" }));
   const s2 = [];
-  rows.forEach(r => r.staff.forEach(s => s2.push({ "Store ID": r.code, "Store": r.name, "Employee ID": s.employee_id, "Name": s.staff_name, "Acknowledged at": fmtDateTime(s.acked_at) })));
+  let all = [];
+  try { all = await staffList(w.id); } catch (e) { return toast(errMsg(e), "bad"); }
+  const byId = new Map(rows.map(r => [r.id, r]));
+  all.forEach(s => { const r = byId.get(s.store_id); if (r) s2.push({ "Store ID": r.code, "Store": r.name, "Employee ID": s.employee_id, "Name": s.staff_name, "Acknowledged at": fmtDateTime(s.acked_at) }); });
   const wb = XLSX.utils.book_new();
   const a = XLSX.utils.json_to_sheet(s1); a["!cols"] = [{ wch: 10 }, { wch: 28 }, { wch: 18 }, { wch: 20 }, { wch: 18 }, { wch: 12 }, { wch: 12 }, { wch: 14 }];
   const b = XLSX.utils.json_to_sheet(s2.length ? s2 : [{ "Store ID": "", "Store": "", "Employee ID": "", "Name": "", "Acknowledged at": "" }]); b["!cols"] = [{ wch: 10 }, { wch: 28 }, { wch: 14 }, { wch: 26 }, { wch: 20 }];
@@ -440,24 +469,24 @@ function renderWeeks() {
     if (e < s) return toast("End date is before start date", "bad");
     const { error } = await sb.from("hb_weeks").update({ title: t, start_date: s, end_date: e }).eq("id", w.id);
     if (error) return toast(errMsg(error), "bad");
-    toast("Saved"); livePing("week"); loadAll();
+    toast("Saved"); livePing(["hb-all"], "week"); loadAll();
   };
   if ($("#pubBtn")) $("#pubBtn").onclick = async () => {
     const { error } = await sb.from("hb_weeks").update({ published: true, published_at: new Date().toISOString() }).eq("id", w.id);
     if (error) return toast(errMsg(error), "bad");
-    toast("Published. Stores can see it now."); livePing("publish"); loadAll();
+    toast("Published. Stores can see it now."); livePing(["hb-all"], "publish"); loadAll();
   };
   if ($("#unpubBtn")) $("#unpubBtn").onclick = async () => {
     if (!confirm("Unpublish this week? Stores will stop seeing it. Acknowledgements are kept.")) return;
     const { error } = await sb.from("hb_weeks").update({ published: false }).eq("id", w.id);
     if (error) return toast(errMsg(error), "bad");
-    toast("Unpublished"); livePing("publish"); loadAll();
+    toast("Unpublished"); livePing(["hb-all"], "publish"); loadAll();
   };
   $("#delWeekBtn").onclick = async () => {
     if (!confirm(`Delete "${w.title}" with its products and all acknowledgements? This can't be undone.`)) return;
     const { error } = await sb.from("hb_weeks").delete().eq("id", w.id);
     if (error) return toast(errMsg(error), "bad");
-    S.editWeek = null; toast("Week deleted"); livePing("publish"); loadAll();
+    S.editWeek = null; toast("Week deleted"); livePing(["hb-all"], "publish"); loadAll();
   };
   $("#addProdBtn").onclick = () => productModal();
   $("#prodTplBtn").onclick = () => downloadSheet([["Product Name", "Description", "Price"], ["Pistachio Latte", "Creamy latte with pistachio sauce", 18]], "Hero Board - Product Template.xlsx", [28, 44, 10]);
@@ -469,14 +498,14 @@ function renderWeeks() {
     const start = S.products.length;
     const { error } = await sb.from("hb_products").insert(items.map((x, i) => ({ ...x, week_id: w.id, sort: start + i })));
     if (error) return toast(errMsg(error), "bad");
-    toast(`${items.length} product${items.length > 1 ? "s" : ""} added. Add photos with Edit.`); await loadProducts(); renderWeeks(); if (w.published) livePing("products");
+    toast(`${items.length} product${items.length > 1 ? "s" : ""} added. Add photos with Edit.`); await loadProducts(); renderWeeks(); if (w.published && w.id === currentWeekId()) livePing(["hb-all"], "products");
   };
   $("#weekEditor").querySelectorAll("[data-edit]").forEach(b => b.onclick = () => productModal(S.products.find(p => p.id === +b.dataset.edit)));
   $("#weekEditor").querySelectorAll("[data-del]").forEach(b => b.onclick = async () => {
     if (!confirm("Remove this product?")) return;
     const { error } = await sb.from("hb_products").delete().eq("id", +b.dataset.del);
     if (error) return toast(errMsg(error), "bad");
-    await loadProducts(); renderWeeks(); if (w.published) livePing("products");
+    await loadProducts(); renderWeeks(); if (w.published && w.id === currentWeekId()) livePing(["hb-all"], "products");
   });
 }
 $("#newWeekBtn").onclick = () => {
@@ -521,14 +550,14 @@ function productModal(p) {
       const { error } = p ? await sb.from("hb_products").update(row).eq("id", p.id) : await sb.from("hb_products").insert({ ...row, week_id: S.editWeek, sort: S.products.length });
       if (error) throw error;
       closeAll(); await loadProducts(); renderWeeks();
-      if (S.weeks.find(w => w.id === S.editWeek)?.published) livePing("products");
+      if (S.editWeek === currentWeekId()) livePing(["hb-all"], "products");
     } catch (e) { toast(errMsg(e), "bad"); $("#pmSave").disabled = false; $("#pmSave").textContent = "Save"; }
   };
 }
 async function uploadPhoto(file, weekId) {
   const blob = await shrinkImage(file);
   const path = `week-${weekId}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.jpg`;
-  const { error } = await sb.storage.from("hb-photos").upload(path, blob, { contentType: "image/jpeg" });
+  const { error } = await sb.storage.from("hb-photos").upload(path, blob, { contentType: "image/jpeg", cacheControl: "31536000" });
   if (error) throw error;
   return sb.storage.from("hb-photos").getPublicUrl(path).data.publicUrl;
 }
@@ -536,10 +565,10 @@ function shrinkImage(file) {
   return new Promise((res, rej) => {
     const img = new Image();
     img.onload = () => {
-      const m = 1200, r = Math.min(1, m / Math.max(img.width, img.height));
+      const m = 900, r = Math.min(1, m / Math.max(img.width, img.height));
       const c = document.createElement("canvas"); c.width = Math.round(img.width * r); c.height = Math.round(img.height * r);
       c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
-      c.toBlob(b => b ? res(b) : rej(new Error("Could not read image")), "image/jpeg", .85);
+      c.toBlob(b => b ? res(b) : rej(new Error("Could not read image")), "image/jpeg", .78);
     };
     img.onerror = () => rej(new Error("Could not read image"));
     img.src = URL.createObjectURL(file);
@@ -556,7 +585,7 @@ function renderStores() {
   $("#sRows").innerHTML = list.length ? list.map(s => `
     <tr>
       <td class="mono"><b>${esc(s.code)}</b></td>
-      <td>${esc(s.name)}</td>
+      <td>${esc(s.name)}${s.locked_until && new Date(s.locked_until) > new Date() ? ` <span class="chip pend" title="Too many wrong passwords. Reset password to unlock now.">Locked</span>` : ""}</td>
       <td class="mono">${S.showPw ? esc(s.pass_plain) : "••••••"}</td>
       <td><input type="number" min="0" max="500" value="${s.total_staff || ""}" placeholder="—" data-staff="${s.id}" style="width:80px;padding:6px 8px"></td>
       <td style="text-align:right;white-space:nowrap"><button class="btn ghost sm" data-reset="${s.id}">Reset password</button> <button class="btn danger sm" data-sdel="${s.id}">Delete</button></td>
@@ -565,7 +594,7 @@ function renderStores() {
     const v = parseInt(i.value || "0", 10);
     const { error } = await sb.from("hb_stores").update({ total_staff: isNaN(v) ? 0 : Math.max(0, v) }).eq("id", +i.dataset.staff);
     if (error) return toast(errMsg(error), "bad");
-    toast("Staff count saved"); livePing("stores"); loadAll(true);
+    toast("Staff count saved"); const st = S.stores.find(x => x.id === +i.dataset.staff); if (st) livePing(["hb-store-" + st.code], "staff"); loadAll(true);
   });
   $("#sRows").querySelectorAll("[data-reset]").forEach(b => b.onclick = async () => {
     const s = S.stores.find(x => x.id === +b.dataset.reset);
@@ -600,7 +629,6 @@ async function createStores(names) {
   if (error) return toast(errMsg(error), "bad");
   await loadAll(true);
   showLogins(data, "Store logins");
-  livePing("stores");
 }
 function showLogins(list, title) {
   const nNew = list.filter(x => x.created).length;
