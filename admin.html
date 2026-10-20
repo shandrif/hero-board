@@ -178,7 +178,7 @@ async function boot() {
   const { data } = await sb.auth.getSession();
   if (!data.session) return showLogin();
   const { data: rows } = await sb.from("hb_admins").select("user_id").eq("user_id", data.session.user.id);
-  if (!rows || !rows.length) { await sb.auth.signOut(); return showLogin("This account is not a Hero Board admin."); }
+  if (!rows || !rows.length) { await sb.auth.signOut({ scope: "local" }); return showLogin("This account is not a Hero Board admin."); }
   $("#loginView").classList.add("hidden"); $("#appView").classList.remove("hidden");
   $("#storeLink").textContent = BASE + "index.html";
   await loadAll();
@@ -191,7 +191,7 @@ $("#loginForm").onsubmit = async e => {
   if (error) return ($("#lErr").textContent = error.message === "Invalid login credentials" ? "Wrong email or password." : error.message);
   boot();
 };
-$("#logoutBtn").onclick = async () => { await sb.auth.signOut(); location.replace("index.html"); };
+$("#logoutBtn").onclick = async () => { await sb.auth.signOut({ scope: "local" }); location.replace("index.html"); };
 
 // ---------- tabs ----------
 document.querySelectorAll(".tab").forEach(b => b.onclick = () => {

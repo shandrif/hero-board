@@ -1,5 +1,5 @@
 // Hero Board — shared helpers
-const sb = supabase.createClient(HB_CONFIG.SUPABASE_URL, HB_CONFIG.SUPABASE_KEY);
+const sb = supabase.createClient(HB_CONFIG.SUPABASE_URL, HB_CONFIG.SUPABASE_KEY, { auth: { storageKey: "hero-board-auth" } });
 const TZ = "Asia/Riyadh";
 
 function esc(v) {
