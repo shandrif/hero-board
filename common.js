@@ -43,7 +43,7 @@ function liveConnect(names, onPing, delay = 1500) {
   let t = null;
   const fire = () => { clearTimeout(t); t = setTimeout(onPing, delay); };
   names.forEach(n => hbChannel(n).on("broadcast", { event: "refresh" }, fire).subscribe());
-  setInterval(() => { if (!document.hidden) onPing(); }, 120000); // safety net every 2 min, only while the page is open on screen
+  setInterval(() => { if (!document.hidden) onPing(); }, 300000); // safety net every 5 min, only while the page is open on screen
   document.addEventListener("visibilitychange", () => { if (!document.hidden) fire(); });
 }
 function livePing(names, what) {
