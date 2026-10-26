@@ -30,6 +30,9 @@ function toast(msg, kind = "ok") {
   t.textContent = msg; t.className = "show " + kind;
   clearTimeout(t._h); t._h = setTimeout(() => (t.className = ""), 3200);
 }
+function clearAdminLogin() {
+  try { Object.keys(localStorage).filter(k => k.startsWith("hero-board-auth")).forEach(k => localStorage.removeItem(k)); } catch {} // Hero Board only, never Trackit
+}
 function storageGet(k) { try { return localStorage.getItem(k); } catch { return null; } }
 function storageSet(k, v) { try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k, v); } catch {} }
 

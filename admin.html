@@ -157,6 +157,9 @@ const BASE = location.href.replace(/[^/]*([?#].*)?$/, "");
 async function boot() {
   const { data } = await sb.auth.getSession();
   if (!data.session) return showLogin();
+  // make sure the login is still valid on the server (it may have been ended, e.g. after a password change)
+  const { error: uErr } = await sb.auth.getUser();
+  if (uErr && uErr.status >= 400 && uErr.status < 500) { try { await sb.auth.signOut({ scope: "local" }); } catch {} clearAdminLogin(); return showLogin(); }
   const { data: rows, error } = await sb.from("hb_admins").select("user_id").eq("user_id", data.session.user.id);
   if (error) { hideSplash(); $("#shell").classList.remove("hidden"); $("#main").innerHTML = `<div class="panel empty"><h2 style="margin-bottom:6px">Couldn't connect</h2>Check your internet connection and try again.<div style="margin-top:16px"><button class="btn" onclick="location.reload()">Try again</button></div></div>`; return; }
   if (!rows || !rows.length) { await sb.auth.signOut({ scope: "local" }); return showLogin("This account is not a Hero Board admin."); }
@@ -174,7 +177,8 @@ function showLogin(msg) { location.replace("index.html" + (msg ? "?m=notadmin" :
 document.querySelectorAll(".logoutBtn").forEach(b => b.onclick = async () => {
   b.disabled = true; b.textContent = "Signing out…";
   try { await Promise.race([sb.auth.signOut({ scope: "local" }), new Promise(r => setTimeout(r, 3000))]); } catch {}
-  location.replace("index.html");
+  clearAdminLogin();
+  location.replace("index.html?out=1");
 });
 function fillStatic() {
   $("#exportBtn").innerHTML = ICON.down + '<span class="hm">Export Excel</span>';

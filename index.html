@@ -87,6 +87,7 @@ let started = false;
 async function start() {
   const msg = new URLSearchParams(location.search).get("m");
   if (!token) {
+    if (new URLSearchParams(location.search).has("out")) { clearAdminLogin(); history.replaceState(null, "", location.pathname); }
     const { data: s } = await sb.auth.getSession();
     if (s.session && !msg) return location.replace("admin.html");
     return showLogin(msg === "notadmin" ? "This account is not a Hero Board admin." : "");
