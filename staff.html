@@ -8,10 +8,10 @@
 <link rel="icon" href="favicon-32.png" type="image/png" sizes="32x32">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <meta name="theme-color" content="#111111">
-<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="style.css?v=10">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
-<script src="config.js"></script>
-<script src="common.js"></script>
+<script src="config.js?v=10"></script>
+<script src="common.js?v=10"></script>
 </head>
 <body>
 <div id="splash" role="status" aria-label="Loading">
@@ -23,7 +23,7 @@
     <div id="content"></div>
   </main>
 </div>
-<script src="motion.js"></script>
+<script src="motion.js?v=10"></script>
 <script>
 const P = new URLSearchParams(location.search), W = (P.get("w") || "").trim(), K = (P.get("k") || "").trim();
 const doneKey = `hb_staff_done_${W}_${K}`;

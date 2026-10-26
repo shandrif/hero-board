@@ -9,11 +9,11 @@
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#111111">
-<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="style.css?v=10">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-<script src="config.js"></script>
-<script src="common.js"></script>
+<script src="config.js?v=10"></script>
+<script src="common.js?v=10"></script>
 </head>
 <body>
 <div id="splash" role="status" aria-label="Loading Hero Board">
@@ -148,7 +148,7 @@
 <div class="drawer" id="drawer"><div class="dh" id="drawerHead"></div><div class="db" id="drawerBody"></div></div>
 <div class="modal" id="modal"></div>
 
-<script src="motion.js"></script>
+<script src="motion.js?v=10"></script>
 <script>
 const S = { weeks: [], stores: [], storeAcks: [], counts: {}, dashWeek: null, editWeek: null, products: [], sort: { key: "status", dir: 1 }, showPw: false, tab: "dash" };
 const BASE = location.href.replace(/[^/]*([?#].*)?$/, "");
@@ -176,7 +176,8 @@ async function boot() {
 function showLogin(msg) { location.replace("index.html" + (msg ? "?m=notadmin" : "")); }
 document.querySelectorAll(".logoutBtn").forEach(b => b.onclick = async () => {
   b.disabled = true; b.textContent = "Signing out…";
-  try { await Promise.race([sb.auth.signOut({ scope: "local" }), new Promise(r => setTimeout(r, 3000))]); } catch {}
+  clearAdminLogin();
+  try { await Promise.race([sb.auth.signOut({ scope: "local" }), new Promise(r => setTimeout(r, 2000))]); } catch {}
   clearAdminLogin();
   location.replace("index.html?out=1");
 });
