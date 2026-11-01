@@ -221,7 +221,7 @@ async function loadAll(quiet) {
   try {
     const [weeks, stores] = await Promise.all([
       fetchAll(() => sb.from("hb_weeks").select("*").order("created_at", { ascending: false })),
-      fetchAll(() => sb.from("hb_stores").select("id,code,name,pass_plain,total_staff,link_key,locked_until,created_at").order("code")),
+      fetchAll(() => sb.from("hb_stores").select("id,code,name,pass_plain,total_staff,locked_until,created_at").order("code")),
     ]);
     S.weeks = weeks; S.stores = stores;
     if (!S.dashWeek || !S.weeks.find(w => w.id === S.dashWeek && w.published)) S.dashWeek = publishedWeeks()[0]?.id || null;
@@ -382,7 +382,6 @@ $("#copyFollow").onclick = () => {
 
 async function openStore(id) {
   const w = S.weeks.find(x => x.id === S.dashWeek), r = weekRows(w.id).find(x => x.id === id);
-  const link = `${BASE}staff.html?w=${w.share_token}&k=${r.link_key}`;
   $("#drawerHead").innerHTML = `<div><h2>${esc(r.name)}</h2><div class="muted small"><span class="mono">${esc(r.code)}</span> · ${esc(w.title)}</div></div><button class="x" onclick="closeAll()">×</button>`;
   $("#drawerBody").innerHTML = `<p class="empty">Loading…</p>`; $("#overlay").classList.add("show"); $("#drawer").classList.add("show");
   let staff = [];
@@ -396,10 +395,7 @@ async function openStore(id) {
     <h3 style="margin-bottom:8px">Staff who acknowledged</h3>
     ${staff.length ? `<div class="tbl-wrap"><table><thead><tr><th>#</th><th>Name</th><th>Employee ID</th><th>Time</th></tr></thead><tbody>
       ${staff.map((s, i) => `<tr><td class="muted">${i + 1}</td><td><b>${esc(s.staff_name)}</b></td><td class="mono">${esc(s.employee_id)}</td><td class="small">${fmtDateTime(s.acked_at)}</td></tr>`).join("")}
-    </tbody></table></div>` : `<p class="empty">No staff have acknowledged yet.</p>`}
-    <h3 style="margin:18px 0 8px">Staff link for this store</h3>
-    <div class="row"><input readonly value="${esc(link)}" class="mono small" style="flex:1"><button class="btn ghost sm" id="cpStaffLink">${ICON.copy}Copy</button></div>`;
-  $("#cpStaffLink").onclick = () => navigator.clipboard.writeText(link).then(() => toast("Link copied"));
+    </tbody></table></div>` : `<p class="empty">No staff have acknowledged yet.</p>`}`;
 }
 function closeAll() { ["#overlay", "#drawer", "#modal"].forEach(s => $(s).classList.remove("show")); }
 $("#overlay").onclick = closeAll;
