@@ -347,7 +347,14 @@ body:has(#staffShell){overflow:auto}
 .mini-meter{min-width:120px}
 td.nowrap,.nowrap{white-space:nowrap}
 @media (max-width:900px){
-  .panel-head .filters{flex:1 1 100%;justify-content:stretch!important}
+  .panel-head .filters{flex:1 1 100%!important;justify-content:stretch!important}
   .top .row{width:100%}
   .top .row select{flex:1;min-width:0!important}
 }
+
+/* ---- dashboard area filters & grouping ---- */
+.area-filters{margin:0 0 12px}
+.area-filters select{flex:1 1 150px;max-width:none}
+.area-filters .btn{flex:0 0 auto}
+tr.group-row td{background:rgba(0,0,0,.035);padding-top:10px;padding-bottom:8px;border-top:1px solid var(--glass-edge)}
+@media (max-width:900px){.area-filters select{flex:1 1 calc(50% - 10px)}}

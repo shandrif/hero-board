@@ -9,7 +9,7 @@
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#111111">
-<link rel="stylesheet" href="style.css?v=11">
+<link rel="stylesheet" href="style.css?v=12">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="config.js?v=10"></script>
@@ -55,8 +55,10 @@
                   <option value="Late">Late</option>
                   <option value="staff">Staff not complete</option>
                 </select>
+                <select id="dGroup" aria-label="Group stores by"></select>
               </div>
             </div>
+            <div class="filters area-filters" id="dArea"></div>
             <div class="tbl-wrap">
               <table>
                 <thead><tr>
@@ -150,7 +152,7 @@
 
 <script src="motion.js?v=10"></script>
 <script>
-const S = { weeks: [], stores: [], storeAcks: [], counts: {}, dashWeek: null, editWeek: null, products: [], sort: { key: "status", dir: 1 }, showPw: false, tab: "dash" };
+const S = { area: { area_manager: "", rom: "", region: "", city: "", group: "" }, weeks: [], stores: [], storeAcks: [], counts: {}, dashWeek: null, editWeek: null, products: [], sort: { key: "status", dir: 1 }, showPw: false, tab: "dash" };
 const BASE = location.href.replace(/[^/]*([?#].*)?$/, "");
 
 // ---------- auth ----------
@@ -221,7 +223,7 @@ async function loadAll(quiet) {
   try {
     const [weeks, stores] = await Promise.all([
       fetchAll(() => sb.from("hb_weeks").select("*").order("created_at", { ascending: false })),
-      fetchAll(() => sb.from("hb_stores").select("id,code,name,pass_plain,total_staff,locked_until,created_at").order("code")),
+      fetchAll(() => sb.from("hb_stores").select("id,code,name,pass_plain,total_staff,locked_until,created_at,area_manager,rom,region,city").order("code")),
     ]);
     S.weeks = weeks; S.stores = stores;
     if (!S.dashWeek || !S.weeks.find(w => w.id === S.dashWeek && w.published)) S.dashWeek = publishedWeeks()[0]?.id || null;
@@ -291,6 +293,27 @@ function weekRows(weekId) {
 function chip(st) { return `<span class="chip ${st === "On time" ? "ok" : st === "Late" ? "late" : "pend"}">${st === "Pending" ? "Not acknowledged" : st}</span>`; }
 function ago(h) { if (h == null) return ""; if (h < 1) return Math.max(1, Math.round(h * 60)) + " min"; if (h < 48) return Math.round(h) + " h"; return Math.round(h / 24) + " days"; }
 
+// ---------- area filters (area manager / ROM / region / city) ----------
+const AREA = [["area_manager", "area managers", "Area manager"], ["rom", "ROMs", "ROM"], ["region", "regions", "Region"], ["city", "cities", "City"]];
+const NONE = "__none";
+const areaMatch = (s, skip) => AREA.every(([k]) => k === skip || !S.area[k] || (S.area[k] === NONE ? !s[k] : s[k] === S.area[k]));
+const inArea = s => areaMatch(s);
+const areaOn = () => AREA.some(([k]) => S.area[k]);
+function renderAreaFilters() {
+  const sel = AREA.map(([k, plural]) => {
+    const pool = S.stores.filter(s => areaMatch(s, k));
+    const vals = [...new Set(pool.map(s => s[k]).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+    if (S.area[k] && S.area[k] !== NONE && !vals.includes(S.area[k])) vals.unshift(S.area[k]);
+    const none = pool.some(s => !s[k]) || S.area[k] === NONE;
+    return `<select data-area="${k}" aria-label="Filter by ${plural}"><option value="">All ${plural}</option>${vals.map(v => `<option value="${esc(v)}" ${S.area[k] === v ? "selected" : ""}>${esc(titleCase(v))}</option>`).join("")}${none ? `<option value="${NONE}" ${S.area[k] === NONE ? "selected" : ""}>Not set</option>` : ""}</select>`;
+  }).join("");
+  $("#dGroup").innerHTML = `<option value="">No grouping</option>${AREA.map(([k, , l]) => `<option value="${k}" ${S.area.group === k ? "selected" : ""}>Group by ${l.toLowerCase()}</option>`).join("")}`;
+  $("#dArea").innerHTML = sel + (areaOn() ? `<button class="btn ghost sm" id="dAreaClear">Clear</button>` : "");
+  $("#dArea").querySelectorAll("select").forEach(x => x.onchange = () => { S.area[x.dataset.area] = x.value; renderDash(); });
+  if ($("#dAreaClear")) $("#dAreaClear").onclick = () => { AREA.forEach(([k]) => S.area[k] = ""); renderDash(); };
+}
+function titleCase(s) { return /[a-z]/.test(s) ? s : s.toLowerCase().replace(/\b[a-z]/g, c => c.toUpperCase()); }
+
 function renderDash() {
   const pubs = publishedWeeks();
   $("#dEmpty").classList.toggle("hidden", !!pubs.length);
@@ -303,7 +326,8 @@ function renderDash() {
   $("#dTitle").textContent = w.title;
   $("#dSub").textContent = `${fmtDate(w.start_date)} – ${fmtDate(w.end_date)} · Published ${fmtDateTime(w.published_at)} (${ago(sinceH)} ago)`;
 
-  const rows = weekRows(w.id), N = rows.length;
+  renderAreaFilters();
+  const rows = weekRows(w.id).filter(inArea), N = rows.length;
   const acked = rows.filter(r => r.status !== "Pending"), onTime = rows.filter(r => r.status === "On time");
   const withTotal = rows.filter(r => r.total > 0);
   const staffAware = withTotal.reduce((a, r) => a + Math.min(r.staffN, r.total), 0), staffTotal = withTotal.reduce((a, r) => a + r.total, 0);
@@ -332,14 +356,27 @@ function renderDash() {
     if (k === "hours") { x = x ?? 1e9; y = y ?? 1e9; }
     return (x > y ? 1 : x < y ? -1 : a.code.localeCompare(b.code)) * d;
   });
-  $("#dRows").innerHTML = list.length ? list.map(r => `
+  const g = S.area.group, groupLabel = AREA.find(a => a[0] === g)?.[2];
+  if (g) list.sort((a, b) => (a[g] ? 0 : 1) - (b[g] ? 0 : 1) || (a[g] || "").localeCompare(b[g] || ""));
+  let last = null;
+  const rowHtml = r => `
     <tr class="click" data-store="${r.id}">
       <td class="mono">${esc(r.code)}</td>
-      <td><b>${esc(r.name)}</b></td>
+      <td><b>${esc(r.name)}</b>${r.area_manager || r.city ? `<div class="muted small">${[r.area_manager, r.city].filter(Boolean).map(v => esc(titleCase(v))).join(" · ")}</div>` : ""}</td>
       <td>${chip(r.status)}</td>
       <td class="hm nowrap">${r.ack ? `${fmtDateTime(r.ack)}<div class="muted small">${ago(r.hours)} after publish</div>` : `<span class="muted">—</span>`}</td>
       <td>${r.total ? `<div class="mini-meter"><div class="meter tan"><i style="width:${r.staffPct}%"></i></div><b>${r.staffN}/${r.total}</b></div>` : r.staffN ? `<b>${r.staffN}</b> <span class="muted small">(staff count not set)</span>` : `<span class="muted">—</span>`}</td>
-    </tr>`).join("") : `<tr><td colspan="5" class="empty">${S.stores.length ? "No stores match." : "No stores yet. Add them in the Stores tab."}</td></tr>`;
+    </tr>`;
+  const groupHead = r => {
+    const key = r[g] || "", gr = list.filter(x => (x[g] || "") === key);
+    const ack = gr.filter(x => x.status !== "Pending").length;
+    return `<tr class="group-row"><td colspan="5"><b>${key ? esc(titleCase(key)) : groupLabel + " not set"}</b><span class="muted small"> · ${gr.length} store${gr.length > 1 ? "s" : ""} · ${ack}/${gr.length} acknowledged</span></td></tr>`;
+  };
+  $("#dRows").innerHTML = list.length ? list.map(r => {
+    let h = "";
+    if (g && (r[g] || "") !== last) { last = r[g] || ""; h = groupHead(r); }
+    return h + rowHtml(r);
+  }).join("") : `<tr><td colspan="5" class="empty">${S.stores.length ? "No stores match." : "No stores yet. Add them in the Stores tab."}</td></tr>`;
   document.querySelectorAll("th.sort").forEach(th => th.textContent = th.textContent.replace(/ [▲▼]$/, "") + (th.dataset.sort === k ? (d > 0 ? " ▲" : " ▼") : ""));
   $("#dRows").querySelectorAll("tr[data-store]").forEach(tr => tr.onclick = () => openStore(+tr.dataset.store));
 
@@ -347,7 +384,7 @@ function renderDash() {
   const pend = rows.filter(r => r.status === "Pending");
   const lowStaff = rows.filter(r => r.status !== "Pending" && r.total > 0 && r.staffN < r.total).sort((a, b) => a.staffPct - b.staffPct);
   const noCount = rows.filter(r => r.status !== "Pending" && !r.total);
-  S.follow = { pend, lowStaff, noCount, title: w.title };
+  S.follow = { pend, lowStaff, noCount, title: w.title + (areaOn() ? " – " + AREA.filter(([k]) => S.area[k]).map(([k]) => S.area[k] === NONE ? "not set" : titleCase(S.area[k])).join(", ") : "") };
   $("#follow").innerHTML = (pend.length + lowStaff.length + noCount.length) ? [
     ...pend.map(r => `<li><span><b>${esc(r.name)}</b> <span class="muted small mono">${esc(r.code)}</span></span>${chip("Pending")}</li>`),
     ...lowStaff.map(r => `<li><span><b>${esc(r.name)}</b> <span class="muted small mono">${esc(r.code)}</span></span><span class="chip late">Staff ${r.staffN}/${r.total}</span></li>`),
@@ -357,7 +394,7 @@ function renderDash() {
   // trend
   const tw = pubs.slice(0, 8).reverse();
   $("#trend").innerHTML = tw.map(x => {
-    const rr = weekRows(x.id), n = rr.length;
+    const rr = weekRows(x.id).filter(inArea), n = rr.length;
     const sp = pct(rr.filter(r => r.status !== "Pending").length, n);
     const wt = rr.filter(r => r.total > 0), tp = pct(wt.reduce((a, r) => a + Math.min(r.staffN, r.total), 0), wt.reduce((a, r) => a + r.total, 0));
     return `<div class="col" title="${esc(x.title)}: stores ${sp}%, staff ${tp}%">
@@ -367,6 +404,7 @@ function renderDash() {
 }
 $("#dWeek").onchange = async e => { S.dashWeek = +e.target.value; if (!S.storeAcks.some(a => a.week_id === S.dashWeek)) { try { await loadAcks([S.dashWeek]); } catch {} } renderDash(); };
 $("#dSearch").oninput = renderDash; $("#dFilter").onchange = renderDash;
+$("#dGroup").onchange = e => { S.area.group = e.target.value; renderDash(); };
 document.querySelectorAll("th.sort").forEach(th => th.onclick = () => {
   S.sort = { key: th.dataset.sort, dir: S.sort.key === th.dataset.sort ? -S.sort.dir : 1 }; renderDash();
 });
@@ -403,7 +441,7 @@ document.addEventListener("keydown", e => { if (e.key === "Escape") closeAll(); 
 
 $("#exportBtn").onclick = async () => {
   const w = S.weeks.find(x => x.id === S.dashWeek), rows = weekRows(w.id);
-  const s1 = rows.map(r => ({ "Store ID": r.code, "Store": r.name, "Manager status": r.status === "Pending" ? "Not acknowledged" : r.status,
+  const s1 = rows.map(r => ({ "Store ID": r.code, "Store": r.name, "Area manager": r.area_manager || "", "ROM": r.rom || "", "Region": r.region || "", "City": r.city || "", "Manager status": r.status === "Pending" ? "Not acknowledged" : r.status,
     "Acknowledged at": r.ack ? fmtDateTime(r.ack) : "", "Hours after publish": r.hours == null ? "" : Math.round(r.hours * 10) / 10,
     "Staff aware": r.staffN, "Total staff": r.total || "", "Staff aware %": r.total ? Math.min(100, pct(r.staffN, r.total)) : "" }));
   const s2 = [];
@@ -412,7 +450,7 @@ $("#exportBtn").onclick = async () => {
   const byId = new Map(rows.map(r => [r.id, r]));
   all.forEach(s => { const r = byId.get(s.store_id); if (r) s2.push({ "Store ID": r.code, "Store": r.name, "Employee ID": s.employee_id, "Name": s.staff_name, "Acknowledged at": fmtDateTime(s.acked_at) }); });
   const wb = XLSX.utils.book_new();
-  const a = XLSX.utils.json_to_sheet(s1); a["!cols"] = [{ wch: 10 }, { wch: 28 }, { wch: 18 }, { wch: 20 }, { wch: 18 }, { wch: 12 }, { wch: 12 }, { wch: 14 }];
+  const a = XLSX.utils.json_to_sheet(s1); a["!cols"] = [{ wch: 10 }, { wch: 28 }, { wch: 22 }, { wch: 20 }, { wch: 16 }, { wch: 14 }, { wch: 18 }, { wch: 20 }, { wch: 18 }, { wch: 12 }, { wch: 12 }, { wch: 14 }];
   const b = XLSX.utils.json_to_sheet(s2.length ? s2 : [{ "Store ID": "", "Store": "", "Employee ID": "", "Name": "", "Acknowledged at": "" }]); b["!cols"] = [{ wch: 10 }, { wch: 28 }, { wch: 14 }, { wch: 26 }, { wch: 20 }];
   XLSX.utils.book_append_sheet(wb, a, "Stores"); XLSX.utils.book_append_sheet(wb, b, "Staff");
   XLSX.writeFile(wb, `Hero Board - ${w.title.replace(/[\\/:*?"<>|]/g, "")}.xlsx`);
