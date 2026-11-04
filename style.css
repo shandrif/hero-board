@@ -135,13 +135,13 @@ main#main{height:100%;overflow-y:auto;overscroll-behavior:contain;-webkit-overfl
 .panel-head h2{font-size:17px}
 
 /* ---- KPIs ---- */
-.kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;margin-bottom:16px}
-.kpi{padding:18px 20px;position:relative;overflow:hidden}
+.kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-bottom:14px}
+.kpi{padding:15px 17px;position:relative;overflow:hidden}
 .kpi::after{content:"";position:absolute;inset:0;background:radial-gradient(220px circle at var(--mx,50%) var(--my,0%),rgba(255,255,255,.7),transparent 60%);opacity:0;transition:opacity 200ms var(--ease-out);pointer-events:none}
 .kpi .k-label{color:var(--muted);font-size:13px;font-weight:600;display:flex;align-items:center;gap:8px}
-.kpi .k-value{font-size:38px;font-weight:700;letter-spacing:-1px;margin-top:6px;line-height:1}
-.kpi .k-value small{font-size:16px;font-weight:600;color:var(--muted);letter-spacing:0}
-.kpi .k-foot{font-size:12px;color:var(--muted);margin-top:8px}
+.kpi .k-value{font-size:32px;font-weight:700;letter-spacing:-1px;margin-top:5px;line-height:1}
+.kpi .k-value small{font-size:14px;font-weight:600;color:var(--muted);letter-spacing:0}
+.kpi .k-foot{font-size:12px;color:var(--muted);margin-top:7px}
 .dot{width:10px;height:10px;border-radius:50%;display:inline-block;flex:none}
 .meter{height:10px;border-radius:999px;overflow:hidden;background:#efe5d8;margin-top:12px}
 .meter > i{display:block;height:100%;border-radius:999px;background:var(--teal);transition:width 400ms var(--ease-out)}
@@ -302,8 +302,8 @@ tbody tr.click{cursor:pointer}
   .bottom-nav button.on svg{filter:drop-shadow(0 4px 8px rgba(212,179,139,.55))}
   .bottom-nav svg{width:22px;height:22px}
   .kpis{grid-template-columns:repeat(2,minmax(0,1fr))}
-  .kpi{padding:16px}
-  .kpi .k-value{font-size:30px}
+  .kpi{padding:14px}
+  .kpi .k-value{font-size:26px}
   .top h1,.top h2{font-size:23px}
   .dash-grid,.weeks-layout,.grid2{grid-template-columns:1fr}
   .filters > *{max-width:none}

@@ -9,7 +9,7 @@
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#111111">
-<link rel="stylesheet" href="style.css?v=10">
+<link rel="stylesheet" href="style.css?v=11">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="config.js?v=10"></script>
@@ -167,7 +167,7 @@ async function boot() {
   $("#storeLink").textContent = BASE;
   fillStatic();
   go(S.tab, true);
-  $("#kpis").innerHTML = "<div class='skel' style='height:120px'></div>".repeat(4);
+  $("#kpis").innerHTML = "<div class='skel' style='height:104px'></div>".repeat(4);
   await loadAll();
   hideSplash();
   countUpOnce($("#kpis"));
