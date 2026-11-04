@@ -12,6 +12,7 @@ alter table public.hb_stores
 update public.hb_stores s
    set branch_code = v.branch_code, area_manager = v.area_manager, rom = v.rom, city = v.city, region = v.region
   from (values
+  ('HM001', 'B32', 'JAY PRAKASH', 'FAHAD ALOTEBE', 'Riyadh', 'Riyadh'),
   ('HM002', 'B74', 'LEO ANGELO', 'IRFAN SHAIKH', 'Abha', 'Asir'),
   ('HM003', 'B89', 'LEO ANGELO', 'IRFAN SHAIKH', 'Abha', 'Asir'),
   ('HM004', 'B93', 'LEO ANGELO', 'IRFAN SHAIKH', 'Abha', 'Asir'),
