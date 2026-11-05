@@ -513,7 +513,7 @@ function renderWeeks() {
           ${dp ? "" : `<button class="btn sm" id="addProdBtn">${ICON.plus}Add product</button>`}
         </div>
       </div>
-      ${dp ? `<p class="muted small" style="margin:-6px 0 16px">Each week has four heroes: a drink and a food for the morning, and a drink and a food for the evening.</p>` : ""}
+      ${dp ? `<p class="muted small" style="margin:-6px 0 16px">Each week has four heroes: a drink and a food for the morning, and a drink and a sweet for the evening.</p>` : ""}
       ${productsHtml}
     </div>`;
   $("#saveWeekBtn").onclick = async () => {
@@ -599,8 +599,8 @@ $("#newWeekBtn").onclick = () => {
 function rowSlot(daypart, type) {
   const d = String(daypart || "").toLowerCase(), k = String(type || "").toLowerCase();
   const dpart = /morn|am\b|^am|صباح/.test(d) ? "morning" : /even|pm\b|^pm|night|مساء/.test(d) ? "evening" : "";
-  const kind = /drink|beverage|coffee|مشروب/.test(k) ? "Hero drink" : /food|sweet|dessert|snack|sandwich|اكل|حلو/.test(k) ? "Hero food" : "";
-  return (SLOTS.find(s => s[1] === dpart && s[2] === kind) || [""])[0];
+  const isDrink = /drink|beverage|coffee|مشروب/.test(k), isEat = /food|sweet|dessert|snack|sandwich|cake|اكل|حلو/.test(k);
+  return (SLOTS.find(s => s[1] === dpart && (isDrink ? /drink/.test(s[0]) : isEat && !/drink/.test(s[0]))) || [""])[0];
 }
 function productModal(p, slot) {
   slot = p?.slot || slot || "";

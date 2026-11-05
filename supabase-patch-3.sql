@@ -1,5 +1,5 @@
 -- Hero Board patch 3: Morning / Evening hero layout for new weeks
--- New weeks hold four heroes: Morning drink + food, Evening drink + food.
+-- New weeks hold four heroes: Morning drink + food, Evening drink + sweet.
 -- Existing published weeks (e.g. week 45) keep their current simple list and are not changed.
 -- Safe to run more than once. Only touches Hero Board (hb_) objects.
 
@@ -18,7 +18,7 @@ update public.hb_weeks w set layout = 'daypart'
 -- 2) Products: which slot a hero fills ('' = old-style list product).
 alter table public.hb_products add column if not exists slot text not null default '';
 do $$ begin
-  alter table public.hb_products add constraint hb_products_slot_check check (slot in ('', 'am_drink', 'am_food', 'pm_drink', 'pm_food'));
+  alter table public.hb_products add constraint hb_products_slot_check check (slot in ('', 'am_drink', 'am_food', 'pm_drink', 'pm_sweet'));
 exception when duplicate_object then null; end $$;
 create unique index if not exists hb_products_week_slot on public.hb_products(week_id, slot) where slot <> '';
 

@@ -55,9 +55,9 @@ function livePing(names, what) {
 
 function logoHTML() { return `<div class="logo" aria-label="Half Million">½M</div>`; }
 
-// Hero weeks created from Nov 2026 use a fixed daypart layout: Morning drink + food, Evening drink + food.
+// Hero weeks created from Nov 2026 use a fixed daypart layout: Morning drink + food, Evening drink + sweet.
 const DAYPARTS = [["morning", "Morning", "☀"], ["evening", "Evening", "☾"]];
-const SLOTS = [["am_drink", "morning", "Hero drink"], ["am_food", "morning", "Hero food"], ["pm_drink", "evening", "Hero drink"], ["pm_food", "evening", "Hero food"]];
+const SLOTS = [["am_drink", "morning", "Hero drink"], ["am_food", "morning", "Hero food"], ["pm_drink", "evening", "Hero drink"], ["pm_sweet", "evening", "Hero sweet"]];
 const slotInfo = s => SLOTS.find(x => x[0] === s);
 const slotLabel = s => { const x = slotInfo(s); return x ? `${DAYPARTS.find(d => d[0] === x[1])[1]} · ${x[2]}` : ""; };
 function productCard(p, tag) {
