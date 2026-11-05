@@ -9,11 +9,11 @@
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#111111">
-<link rel="stylesheet" href="style.css?v=12">
+<link rel="stylesheet" href="style.css?v=13">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-<script src="config.js?v=10"></script>
-<script src="common.js?v=10"></script>
+<script src="config.js?v=13"></script>
+<script src="common.js?v=13"></script>
 </head>
 <body>
 <div id="splash" role="status" aria-label="Loading Hero Board">
@@ -150,7 +150,7 @@
 <div class="drawer" id="drawer"><div class="dh" id="drawerHead"></div><div class="db" id="drawerBody"></div></div>
 <div class="modal" id="modal"></div>
 
-<script src="motion.js?v=10"></script>
+<script src="motion.js?v=13"></script>
 <script>
 const S = { area: { area_manager: "", rom: "", region: "", city: "", group: "" }, weeks: [], stores: [], storeAcks: [], counts: {}, dashWeek: null, editWeek: null, products: [], sort: { key: "status", dir: 1 }, showPw: false, tab: "dash" };
 const BASE = location.href.replace(/[^/]*([?#].*)?$/, "");
@@ -471,12 +471,28 @@ function renderWeeks() {
   const w = S.weeks.find(x => x.id === S.editWeek);
   if (!w) { $("#weekEditor").innerHTML = `<div class="panel empty">Create your first hero week to get started.</div>`; return; }
   const ackN = S.storeAcks.filter(a => a.week_id === w.id).length;
+  const dp = w.layout === "daypart";
+  const missing = dp ? SLOTS.filter(([s]) => !S.products.some(p => p.slot === s)) : [];
+  const canPub = dp ? !missing.length : S.products.length > 0;
+  const pubWhy = dp ? `Add all four heroes first (${missing.map(([s]) => slotLabel(s)).join(", ")} missing)` : "Add at least one product first";
+  const adminCard = (p, tag) => `
+        <article class="pcard">
+          <div class="pimg">${p.photo_url ? `<img src="${esc(p.photo_url)}" alt="">` : `<span>½M</span>`}</div>
+          <div class="pbody">${tag ? `<div class="ptag">${esc(tag)}</div>` : ""}<h3>${esc(p.name)}</h3>${p.price != null ? `<div class="price">${fmtPrice(p.price)}</div>` : ""}${p.description ? `<p>${esc(p.description)}</p>` : ""}${!p.photo_url ? `<p class="small" style="color:var(--amber)">No photo yet</p>` : ""}</div>
+          <div class="pactions"><button class="btn ghost sm" data-edit="${p.id}">${ICON.edit}Edit</button><button class="icon-btn" title="Remove" aria-label="Remove" data-del="${p.id}">${ICON.trash}</button></div>
+        </article>`;
+  const productsHtml = dp
+    ? `<div class="dayparts">` + DAYPARTS.map(([d, label, icon]) => `<section class="daypart"><h3 class="dp-head"><span class="dp-icon ${d}" aria-hidden="true">${icon}</span>${label}</h3><div class="cards">${SLOTS.filter(s => s[1] === d).map(([slot, , tag]) => {
+        const p = S.products.find(x => x.slot === slot);
+        return p ? adminCard(p, tag) : `<button class="slot-empty" data-slot="${slot}"><span class="plus">+</span><b>Add ${tag.toLowerCase()}</b><span class="small">${label}</span></button>`;
+      }).join("")}</div></section>`).join("") + `</div>`
+    : S.products.length ? `<div class="cards">${S.products.map(p => adminCard(p)).join("")}</div>` : `<div class="empty">No products yet. Add them one by one, or upload the product template.</div>`;
   $("#weekEditor").innerHTML = `
     <div class="panel">
       <div class="panel-head">
         <div class="row"><h2>${esc(w.title)}</h2>${weekState(w)}</div>
         <div class="row">
-          ${w.published ? `<button class="btn ghost" id="unpubBtn">Unpublish</button>` : `<button class="btn teal" id="pubBtn" ${S.products.length ? "" : "disabled title='Add at least one product first'"}>Publish to all stores</button>`}
+          ${w.published ? `<button class="btn ghost" id="unpubBtn">Unpublish</button>` : `<button class="btn teal" id="pubBtn" ${canPub ? "" : `disabled title="${esc(pubWhy)}"`}>Publish to all stores</button>`}
           <button class="btn danger" id="delWeekBtn">Delete</button>
         </div>
       </div>
@@ -489,20 +505,16 @@ function renderWeeks() {
       <div style="margin-top:12px"><button class="btn ghost sm" id="saveWeekBtn">Save changes</button></div>
     </div>
     <div class="panel">
-      <div class="panel-head"><h2>Hero products <span class="muted">(${S.products.length})</span></h2>
+      <div class="panel-head"><h2>Hero products <span class="muted">(${dp ? `${SLOTS.length - missing.length} of ${SLOTS.length}` : S.products.length})</span></h2>
         <div class="row">
           <button class="btn ghost sm" id="prodTplBtn">${ICON.down}Product template</button>
           <label class="btn ghost sm" for="prodFile">${ICON.up}Upload products</label>
           <input type="file" id="prodFile" accept=".xlsx,.xls,.csv" class="hidden">
-          <button class="btn sm" id="addProdBtn">${ICON.plus}Add product</button>
+          ${dp ? "" : `<button class="btn sm" id="addProdBtn">${ICON.plus}Add product</button>`}
         </div>
       </div>
-      ${S.products.length ? `<div class="cards">${S.products.map(p => `
-        <article class="pcard">
-          <div class="pimg">${p.photo_url ? `<img src="${esc(p.photo_url)}" alt="">` : `<span>½M</span>`}</div>
-          <div class="pbody"><h3>${esc(p.name)}</h3>${p.price != null ? `<div class="price">${fmtPrice(p.price)}</div>` : ""}${p.description ? `<p>${esc(p.description)}</p>` : ""}${!p.photo_url ? `<p class="small" style="color:var(--amber)">No photo yet</p>` : ""}</div>
-          <div class="pactions"><button class="btn ghost sm" data-edit="${p.id}">${ICON.edit}Edit</button><button class="icon-btn" title="Remove" aria-label="Remove" data-del="${p.id}">${ICON.trash}</button></div>
-        </article>`).join("")}</div>` : `<div class="empty">No products yet. Add them one by one, or upload the product template.</div>`}
+      ${dp ? `<p class="muted small" style="margin:-6px 0 16px">Each week has four heroes: a drink and a food for the morning, and a drink and a food for the evening.</p>` : ""}
+      ${productsHtml}
     </div>`;
   $("#saveWeekBtn").onclick = async () => {
     const t = $("#wTitle").value.trim(), s = $("#wStart").value, e = $("#wEnd").value;
@@ -529,13 +541,29 @@ function renderWeeks() {
     if (error) return toast(errMsg(error), "bad");
     S.editWeek = null; toast("Week deleted"); livePing(["hb-all"], "publish"); loadAll();
   };
-  $("#addProdBtn").onclick = () => productModal();
-  $("#prodTplBtn").onclick = () => downloadSheet([["Product Name", "Description", "Price"], ["Pistachio Latte", "Creamy latte with pistachio sauce", 18]], "Hero Board - Product Template.xlsx", [28, 44, 10]);
+  if ($("#addProdBtn")) $("#addProdBtn").onclick = () => productModal();
+  $("#weekEditor").querySelectorAll("[data-slot]").forEach(b => b.onclick = () => productModal(null, b.dataset.slot));
+  $("#prodTplBtn").onclick = () => dp
+    ? downloadSheet([["Daypart", "Type", "Product Name", "Description", "Price"], ...SLOTS.map(([, d, tag]) => [d === "morning" ? "Morning" : "Evening", tag.replace("Hero ", "").replace(/^./, c => c.toUpperCase()), "", "", ""])], "Hero Board - Product Template.xlsx", [12, 10, 28, 44, 10])
+    : downloadSheet([["Product Name", "Description", "Price"], ["Pistachio Latte", "Creamy latte with pistachio sauce", 18]], "Hero Board - Product Template.xlsx", [28, 44, 10]);
   $("#prodFile").onchange = async e => {
     const f = e.target.files[0]; e.target.value = ""; if (!f) return;
     const rows = await readSheet(f);
-    const items = rows.map(r => ({ name: String(pick(r, ["product name", "name", "product"]) || "").trim(), description: String(pick(r, ["description", "desc"]) || "").trim(), price: parsePrice(pick(r, ["price"])) })).filter(x => x.name);
+    const items = rows.map(r => ({ name: String(pick(r, ["product name", "name", "product"]) || "").trim(), description: String(pick(r, ["description", "desc"]) || "").trim(), price: parsePrice(pick(r, ["price"])),
+      slot: dp ? rowSlot(pick(r, ["daypart", "time", "shift"]), pick(r, ["type", "category", "kind"])) : "" })).filter(x => x.name);
     if (!items.length) return toast("No products found. Use the product template.", "bad");
+    if (dp) {
+      if (items.some(x => !x.slot)) return toast("Each row needs Daypart (Morning/Evening) and Type (Drink/Food). Use the product template.", "bad");
+      if (new Set(items.map(x => x.slot)).size < items.length) return toast("The file has more than one product for the same daypart and type.", "bad");
+      for (const x of items) {
+        const old = S.products.find(p => p.slot === x.slot);
+        const { error } = old ? await sb.from("hb_products").update({ name: x.name, description: x.description, price: x.price }).eq("id", old.id)
+          : await sb.from("hb_products").insert({ ...x, week_id: w.id, sort: SLOTS.findIndex(s => s[0] === x.slot) });
+        if (error) return toast(errMsg(error), "bad");
+      }
+      toast(`${items.length} hero${items.length > 1 ? "es" : ""} saved. Add photos with Edit.`); await loadProducts(); renderWeeks(); if (w.published && w.id === currentWeekId()) livePing(["hb-all"], "products");
+      return;
+    }
     const start = S.products.length;
     const { error } = await sb.from("hb_products").insert(items.map((x, i) => ({ ...x, week_id: w.id, sort: start + i })));
     if (error) return toast(errMsg(error), "bad");
@@ -565,19 +593,26 @@ $("#newWeekBtn").onclick = () => {
     if (e < s) return toast("End date is before start date", "bad");
     const { data, error } = await sb.from("hb_weeks").insert({ title: t, start_date: s, end_date: e }).select().single();
     if (error) return toast(errMsg(error), "bad");
-    closeAll(); S.editWeek = data.id; toast("Week created. Now add the hero products."); loadAll();
+    closeAll(); S.editWeek = data.id; toast("Week created. Now add the morning and evening heroes."); loadAll();
   };
 };
-function productModal(p) {
+function rowSlot(daypart, type) {
+  const d = String(daypart || "").toLowerCase(), k = String(type || "").toLowerCase();
+  const dpart = /morn|am\b|^am|صباح/.test(d) ? "morning" : /even|pm\b|^pm|night|مساء/.test(d) ? "evening" : "";
+  const kind = /drink|beverage|coffee|مشروب/.test(k) ? "Hero drink" : /food|sweet|dessert|snack|sandwich|اكل|حلو/.test(k) ? "Hero food" : "";
+  return (SLOTS.find(s => s[1] === dpart && s[2] === kind) || [""])[0];
+}
+function productModal(p, slot) {
+  slot = p?.slot || slot || "";
   $("#modal").innerHTML = `
-    <div class="panel-head"><h2>${p ? "Edit product" : "Add product"}</h2><button class="x" onclick="closeAll()">×</button></div>
+    <div class="panel-head"><div><h2>${p ? "Edit" : "Add"} ${slot ? esc(slotInfo(slot)[2].toLowerCase()) : "product"}</h2>${slot ? `<div class="muted small">${esc(slotLabel(slot).split(" · ")[0])} hero</div>` : ""}</div><button class="x" onclick="closeAll()">×</button></div>
     <div class="grid2"><div class="field"><label>Product name</label><input id="pmName" value="${esc(p?.name || "")}"></div>
       <div class="field"><label>Price (SAR)</label><input id="pmPrice" type="number" step="0.01" min="0" value="${p?.price ?? ""}"></div></div>
     <div class="field"><label>Short description</label><textarea id="pmDesc">${esc(p?.description || "")}</textarea></div>
     <div class="field"><label>Photo</label>
       <div class="row"><div class="pimg" style="width:110px;border-radius:10px" id="pmPrev">${p?.photo_url ? `<img src="${esc(p.photo_url)}">` : `<span>½M</span>`}</div>
       <input type="file" id="pmFile" accept="image/*" style="flex:1"></div></div>
-    <button class="btn block" id="pmSave">${p ? "Save" : "Add product"}</button>`;
+    <button class="btn block" id="pmSave">${p ? "Save" : slot ? "Add " + esc(slotInfo(slot)[2].toLowerCase()) : "Add product"}</button>`;
   $("#overlay").classList.add("show"); $("#modal").classList.add("show");
   let file = null;
   $("#pmFile").onchange = e => { file = e.target.files[0]; if (file) $("#pmPrev").innerHTML = `<img src="${URL.createObjectURL(file)}">`; };
@@ -588,7 +623,7 @@ function productModal(p) {
       let photo_url = p?.photo_url || null;
       if (file) photo_url = await uploadPhoto(file, S.editWeek);
       const row = { name, description: $("#pmDesc").value.trim(), price: parsePrice($("#pmPrice").value), photo_url };
-      const { error } = p ? await sb.from("hb_products").update(row).eq("id", p.id) : await sb.from("hb_products").insert({ ...row, week_id: S.editWeek, sort: S.products.length });
+      const { error } = p ? await sb.from("hb_products").update(row).eq("id", p.id) : await sb.from("hb_products").insert({ ...row, slot, week_id: S.editWeek, sort: slot ? SLOTS.findIndex(s => s[0] === slot) : S.products.length });
       if (error) throw error;
       closeAll(); await loadProducts(); renderWeeks();
       if (S.editWeek === currentWeekId()) livePing(["hb-all"], "products");

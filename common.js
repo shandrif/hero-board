@@ -55,15 +55,28 @@ function livePing(names, what) {
 
 function logoHTML() { return `<div class="logo" aria-label="Half Million">½M</div>`; }
 
-function productCards(products) {
-  if (!products.length) return `<p class="muted">No hero products added yet.</p>`;
-  return `<div class="cards">${products.map(p => `
+// Hero weeks created from Nov 2026 use a fixed daypart layout: Morning drink + food, Evening drink + food.
+const DAYPARTS = [["morning", "Morning", "☀"], ["evening", "Evening", "☾"]];
+const SLOTS = [["am_drink", "morning", "Hero drink"], ["am_food", "morning", "Hero food"], ["pm_drink", "evening", "Hero drink"], ["pm_food", "evening", "Hero food"]];
+const slotInfo = s => SLOTS.find(x => x[0] === s);
+const slotLabel = s => { const x = slotInfo(s); return x ? `${DAYPARTS.find(d => d[0] === x[1])[1]} · ${x[2]}` : ""; };
+function productCard(p, tag) {
+  return `
     <article class="pcard">
       <div class="pimg">${p.photo_url ? `<img src="${esc(p.photo_url)}" alt="${esc(p.name)}" loading="lazy">` : `<span>½M</span>`}</div>
       <div class="pbody">
+        ${tag ? `<div class="ptag">${esc(tag)}</div>` : ""}
         <h3>${esc(p.name)}</h3>
         ${p.price != null ? `<div class="price">${fmtPrice(p.price)}</div>` : ""}
         ${p.description ? `<p>${esc(p.description)}</p>` : ""}
       </div>
-    </article>`).join("")}</div>`;
+    </article>`;
+}
+function productCards(products) {
+  if (!products.length) return `<p class="muted">No hero products added yet.</p>`;
+  if (!products.some(p => p.slot)) return `<div class="cards">${products.map(p => productCard(p)).join("")}</div>`;
+  return `<div class="dayparts">${DAYPARTS.map(([dp, label, icon]) => {
+    const list = SLOTS.filter(s => s[1] === dp).flatMap(([slot, , tag]) => products.filter(p => p.slot === slot).map(p => productCard(p, tag)));
+    return list.length ? `<section class="daypart"><h3 class="dp-head"><span class="dp-icon ${dp}" aria-hidden="true">${icon}</span>${label}</h3><div class="cards">${list.join("")}</div></section>` : "";
+  }).join("")}</div>`;
 }
