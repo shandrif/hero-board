@@ -358,3 +358,18 @@ td.nowrap,.nowrap{white-space:nowrap}
 .area-filters .btn{flex:0 0 auto}
 tr.group-row td{background:rgba(0,0,0,.035);padding-top:10px;padding-bottom:8px;border-top:1px solid var(--glass-edge)}
 @media (max-width:900px){.area-filters select{flex:1 1 calc(50% - 10px)}}
+
+/* ---- daypart hero weeks (Morning / Evening) ---- */
+.dayparts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:26px}
+.daypart .cards{grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+@media (max-width:1100px){.dayparts{grid-template-columns:1fr;gap:20px}}
+@media (max-width:560px){.daypart .cards{gap:10px}.daypart .pbody{padding:10px 11px 12px}.daypart .pbody h3{font-size:14px}.daypart .pbody p{font-size:13px}.slot-empty{min-height:180px}}
+.dp-head{display:flex;align-items:center;gap:10px;font-size:17px;margin:0 0 12px}
+.dp-icon{width:30px;height:30px;border-radius:50%;display:grid;place-items:center;font-size:16px;line-height:1}
+.dp-icon.morning{background:var(--amber-soft);color:var(--amber)}
+.dp-icon.evening{background:#E3E1F2;color:#4B4594}
+.ptag{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--tan-d);margin-bottom:3px}
+.slot-empty{border:1.5px dashed var(--line);border-radius:16px;min-height:220px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;background:rgba(255,255,255,.4);color:var(--muted);font:inherit;cursor:pointer;padding:16px;transition:border-color 150ms var(--ease-out),background 150ms var(--ease-out)}
+.slot-empty:hover{border-color:var(--tan);background:rgba(255,255,255,.7)}
+.slot-empty b{color:var(--ink);font-size:15px}
+.slot-empty .plus{width:36px;height:36px;border-radius:50%;display:grid;place-items:center;background:var(--tan-soft);color:var(--tan-d);font-size:22px;line-height:1}
