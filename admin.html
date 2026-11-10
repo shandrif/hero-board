@@ -9,11 +9,12 @@
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#111111">
-<link rel="stylesheet" href="style.css?v=13">
+<link rel="stylesheet" href="style.css?v=14">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-<script src="config.js?v=13"></script>
-<script src="common.js?v=13"></script>
+<script src="config.js?v=14"></script>
+<script src="common.js?v=14"></script>
+<script src="export.js?v=14"></script>
 </head>
 <body>
 <div id="splash" role="status" aria-label="Loading Hero Board">
@@ -150,7 +151,7 @@
 <div class="drawer" id="drawer"><div class="dh" id="drawerHead"></div><div class="db" id="drawerBody"></div></div>
 <div class="modal" id="modal"></div>
 
-<script src="motion.js?v=13"></script>
+<script src="motion.js?v=14"></script>
 <script>
 const S = { area: { area_manager: "", rom: "", region: "", city: "", group: "" }, weeks: [], stores: [], storeAcks: [], counts: {}, dashWeek: null, editWeek: null, products: [], sort: { key: "status", dir: 1 }, showPw: false, tab: "dash" };
 const BASE = location.href.replace(/[^/]*([?#].*)?$/, "");
@@ -440,20 +441,23 @@ $("#overlay").onclick = closeAll;
 document.addEventListener("keydown", e => { if (e.key === "Escape") closeAll(); });
 
 $("#exportBtn").onclick = async () => {
-  const w = S.weeks.find(x => x.id === S.dashWeek), rows = weekRows(w.id);
-  const s1 = rows.map(r => ({ "Store ID": r.code, "Store": r.name, "Area manager": r.area_manager || "", "ROM": r.rom || "", "Region": r.region || "", "City": r.city || "", "Manager status": r.status === "Pending" ? "Not acknowledged" : r.status,
-    "Acknowledged at": r.ack ? fmtDateTime(r.ack) : "", "Hours after publish": r.hours == null ? "" : Math.round(r.hours * 10) / 10,
-    "Staff aware": r.staffN, "Total staff": r.total || "", "Staff aware %": r.total ? Math.min(100, pct(r.staffN, r.total)) : "" }));
-  const s2 = [];
-  let all = [];
-  try { all = await staffList(w.id); } catch (e) { return toast(errMsg(e), "bad"); }
-  const byId = new Map(rows.map(r => [r.id, r]));
-  all.forEach(s => { const r = byId.get(s.store_id); if (r) s2.push({ "Store ID": r.code, "Store": r.name, "Employee ID": s.employee_id, "Name": s.staff_name, "Acknowledged at": fmtDateTime(s.acked_at) }); });
-  const wb = XLSX.utils.book_new();
-  const a = XLSX.utils.json_to_sheet(s1); a["!cols"] = [{ wch: 10 }, { wch: 28 }, { wch: 22 }, { wch: 20 }, { wch: 16 }, { wch: 14 }, { wch: 18 }, { wch: 20 }, { wch: 18 }, { wch: 12 }, { wch: 12 }, { wch: 14 }];
-  const b = XLSX.utils.json_to_sheet(s2.length ? s2 : [{ "Store ID": "", "Store": "", "Employee ID": "", "Name": "", "Acknowledged at": "" }]); b["!cols"] = [{ wch: 10 }, { wch: 28 }, { wch: 14 }, { wch: 26 }, { wch: 20 }];
-  XLSX.utils.book_append_sheet(wb, a, "Stores"); XLSX.utils.book_append_sheet(wb, b, "Staff");
-  XLSX.writeFile(wb, `Hero Board - ${w.title.replace(/[\\/:*?"<>|]/g, "")}.xlsx`);
+  const btn = $("#exportBtn"), label = btn.innerHTML;
+  btn.disabled = true; btn.innerHTML = ICON.down + '<span class="hm">Preparing…</span>';
+  try {
+    const w = S.weeks.find(x => x.id === S.dashWeek);
+    const rows = weekRows(w.id).filter(inArea);
+    const [staff, prod] = await Promise.all([staffList(w.id), sb.from("hb_products").select("*").eq("week_id", w.id).order("sort").order("id")]);
+    if (prod.error) throw prod.error;
+    // last 8 published weeks (their acknowledgements are loaded at start-up), oldest first
+    const tw = publishedWeeks().slice(0, 8); if (!tw.includes(w)) tw.push(w);
+    const trend = tw.sort((a, b) => a.start_date.localeCompare(b.start_date)).map(x => ({ week: x, rows: weekRows(x.id).filter(inArea) }));
+    const parts = AREA.filter(([k]) => S.area[k]).map(([k, , l]) => `${l}: ${S.area[k] === NONE ? "not set" : titleCase(S.area[k])}`);
+    await buildWeekReport({ week: w, rows, staff, products: prod.data || [], trend,
+      scope: parts.length ? `${parts.join(" · ")} (${rows.length} stores)` : `All stores (${rows.length})`,
+      scopeShort: AREA.filter(([k]) => S.area[k] && S.area[k] !== NONE).map(([k]) => titleCase(S.area[k])).join(", ") });
+    toast("Report downloaded");
+  } catch (e) { toast(errMsg(e), "bad"); }
+  finally { btn.disabled = false; btn.innerHTML = label; }
 };
 
 // ---------- hero weeks ----------
