@@ -64,14 +64,15 @@ const slotLabel = s => { const x = slotInfo(s); return x ? `${DAYPARTS.find(d =>
 // Each page sets HB_MEDIA = { auth: {store_token} | {week_token, link_key} | {}, label: "watermark text" }
 let HB_MEDIA = { auth: {}, label: "" };
 const HB_PRODUCTS = new Map();
-function mediaChips(p) {
+function mediaChips(p, key) {
   const m = p.media || [];
   if (!m.length) return "";
-  HB_PRODUCTS.set(p.id, p);
+  key = String(key ?? p.id);
+  HB_PRODUCTS.set(key, p);
   const v = m.some(x => x.kind === "video"), pages = m.filter(x => x.kind === "page").length;
   return `<div class="media-row">
-    ${v ? `<button type="button" class="media-btn" data-media="${p.id}" data-kind="video">${ICON.play}Watch video</button>` : ""}
-    ${pages ? `<button type="button" class="media-btn" data-media="${p.id}" data-kind="page">${ICON.doc}Document${pages > 1 ? ` · ${pages} pages` : ""}</button>` : ""}
+    ${v ? `<button type="button" class="media-btn" data-media="${esc(key)}" data-kind="video">${ICON.play}Watch video</button>` : ""}
+    ${pages ? `<button type="button" class="media-btn" data-media="${esc(key)}" data-kind="page">${ICON.doc}Document${pages > 1 ? ` · ${pages} pages` : ""}</button>` : ""}
     <span class="media-lock" title="Confidential: for staff only, do not share">${ICON.lock}Confidential</span></div>`;
 }
 async function mediaCall(body) {
@@ -90,8 +91,8 @@ async function openMedia(p, kind) {
   if (!items.length) return;
   const wm = esc(`${HB_MEDIA.label ? HB_MEDIA.label + " · " : ""}${new Date().toLocaleDateString("en-GB", { timeZone: TZ })} · Confidential`);
   const box = document.createElement("div");
-  box.id = "mediaView"; box.className = "media-view"; box.setAttribute("role", "dialog"); box.setAttribute("aria-label", p.name);
-  box.innerHTML = `<div class="mv-head"><div><b>${esc(p.name)}</b><div class="mv-sub">${kind === "video" ? "Video" : "Document"} · Confidential, do not share</div></div><button class="mv-x" aria-label="Close">×</button></div>
+  box.id = "mediaView"; box.className = "media-view"; box.setAttribute("role", "dialog"); box.setAttribute("aria-label", p.name || p.title || "Media");
+  box.innerHTML = `<div class="mv-head"><div><b>${esc(p.name || p.title)}</b><div class="mv-sub">${kind === "video" ? "Video" : "Document"} · Confidential, do not share</div></div><button class="mv-x" aria-label="Close">×</button></div>
     <div class="mv-body"><p class="mv-msg">Loading…</p></div>`;
   box.addEventListener("contextmenu", e => e.preventDefault());
   box.querySelector(".mv-x").onclick = closeMedia;
@@ -114,7 +115,7 @@ async function openMedia(p, kind) {
 }
 document.addEventListener("click", e => {
   const b = e.target.closest && e.target.closest("[data-media]");
-  if (b) { e.preventDefault(); openMedia(HB_PRODUCTS.get(+b.dataset.media) || {}, b.dataset.kind); }
+  if (b) { e.preventDefault(); openMedia(HB_PRODUCTS.get(b.dataset.media) || {}, b.dataset.kind); }
 });
 document.addEventListener("keydown", e => { if (e.key === "Escape" && document.getElementById("mediaView")) closeMedia(); });
 
@@ -138,4 +139,16 @@ function productCards(products) {
     const list = SLOTS.filter(s => s[1] === dp).flatMap(([slot, , tag]) => products.filter(p => p.slot === slot).map(p => productCard(p, tag)));
     return list.length ? `<section class="daypart"><h3 class="dp-head"><span class="dp-icon ${dp}" aria-hidden="true">${icon}</span>${label}</h3><div class="cards">${list.join("")}</div></section>` : "";
   }).join("")}</div>`;
+}
+
+// ---------- updates (store + staff pages) ----------
+function updateCard(u, extra = "") {
+  const d = Math.max(0, Math.ceil((new Date(u.closes_at) - Date.now()) / 864e5));
+  return `<article class="upd-card">
+    <div class="upd-top"><span class="upd-icon">${ICON.bell}</span><div style="flex:1;min-width:0"><h3>${esc(u.title)}</h3>
+      <div class="muted small">${fmtDateTime(u.published_at)} · open ${d} more day${d === 1 ? "" : "s"}</div></div></div>
+    ${u.message ? `<p class="upd-msg">${esc(u.message)}</p>` : ""}
+    ${mediaChips(u, "u" + u.id)}
+    ${extra}
+  </article>`;
 }

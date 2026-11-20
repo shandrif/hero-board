@@ -399,3 +399,17 @@ body.media-open{overflow:hidden}
 .media-edit .mi{display:flex;align-items:center;gap:8px;font-size:13px}
 .media-edit .mi svg{width:16px;height:16px;flex:none}
 .media-edit .mi span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* ---- updates ---- */
+.upd-card{background:rgba(255,255,255,.85);border:1px solid var(--line);border-radius:16px;padding:16px 18px}
+.upd-card + .upd-card{margin-top:12px}
+.upd-top{display:flex;gap:12px;align-items:flex-start}
+.upd-top h3{font-size:16px;margin:0 0 2px}
+.upd-icon{width:36px;height:36px;border-radius:50%;background:var(--amber-soft);color:var(--amber);display:grid;place-items:center;flex:none}
+.upd-icon svg{width:19px;height:19px}
+.upd-msg{white-space:pre-wrap;margin:10px 0 0;color:var(--ink-2);font-size:14.5px;line-height:1.5}
+.upd-actions{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-top:14px;padding-top:12px;border-top:1px solid var(--line)}
+.target-list{max-height:220px;overflow-y:auto;border:1px solid var(--line);border-radius:12px;padding:8px 12px;background:rgba(255,255,255,.6);display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:4px 12px}
+label.check{display:flex;align-items:center;gap:8px;font-weight:500;font-size:14px;cursor:pointer;margin:4px 0}
+label.check input{width:18px;height:18px;flex:none;accent-color:var(--ink)}
+.badge-n{display:inline-grid;place-items:center;min-width:18px;height:18px;padding:0 5px;border-radius:999px;background:var(--red);color:#fff;font-size:11px;font-weight:700;margin-left:6px}
