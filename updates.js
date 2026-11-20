@@ -6,6 +6,8 @@ const UPD_OPEN_DAYS = 7;
 const U = { list: [], sel: null, acks: {}, counts: {}, loaded: false, q: "", f: "all", am: "" };
 
 async function loadUpdates() {
+  const { data: s } = await sb.auth.getSession();
+  if (!s.session) { adminSignedOut(); return; }
   const { data, error } = await sb.from("hb_updates").select("*").order("created_at", { ascending: false });
   if (error) { toast(errMsg(error), "bad"); return; }
   U.list = data || [];
@@ -55,8 +57,7 @@ function updRows(u) {
 }
 
 // ---------- list + editor ----------
-function renderUpdates() {
-  if (!U.loaded) { $("#updList").innerHTML = `<p class="muted small">Loading…</p>`; loadUpdates().then(renderUpdates); return; }
+function renderUpdateList() {
   $("#updList").innerHTML = U.list.length ? U.list.map(u => {
     const rows = u.published ? updRows(u) : [], acked = rows.filter(r => r.ack).length;
     return `<button class="week-item ${u.id === U.sel ? "on" : ""}" data-u="${u.id}">
@@ -65,6 +66,17 @@ function renderUpdates() {
     </button>`;
   }).join("") : `<p class="muted small">No updates yet.</p>`;
   $("#updList").querySelectorAll("[data-u]").forEach(b => b.onclick = () => { U.sel = +b.dataset.u; renderUpdates(); });
+}
+// Live refresh: only the list and the progress panel, never the edit form (keeps typed text and chosen files)
+function refreshUpdateProgress() {
+  if (!$("#updList")) return;
+  renderUpdateList();
+  const u = U.list.find(x => x.id === U.sel), box = $("#updProgress");
+  if (u && u.published && box) { box.innerHTML = updProgressHTML(u); bindUpdProgress(u); }
+}
+function renderUpdates() {
+  if (!U.loaded) { $("#updList").innerHTML = `<p class="muted small">Loading…</p>`; loadUpdates().then(renderUpdates); return; }
+  renderUpdateList();
   const u = U.list.find(x => x.id === U.sel);
   if (!u) { $("#updEditor").innerHTML = `<div class="panel empty"><h2 style="margin-bottom:6px">No updates yet</h2>Use <b>New update</b> to share a recipe change, training video or announcement with stores. It's separate from hero weeks.</div>`; return; }
   const st = updState(u);
@@ -96,7 +108,7 @@ function renderUpdates() {
       <button class="btn" id="uSave">Save changes</button>
       ${st !== "draft" ? `<span class="muted small" style="margin-left:10px">Changes show to stores straight away.</span>` : ""}
     </div>
-    ${u.published ? updProgressHTML(u) : ""}`;
+    <div id="updProgress">${u.published ? updProgressHTML(u) : ""}</div>`;
   updTargetsUI(u, st !== "draft");
   updMediaUI(u);
   if (u.published) bindUpdProgress(u);
@@ -108,26 +120,26 @@ function renderUpdates() {
     if (!n) return toast("No stores match who receives it", "bad");
     if (!confirm(`Publish "${fresh.title}" to ${n} store${n === 1 ? "" : "s"}? It stays open for ${UPD_OPEN_DAYS} days.`)) return;
     const now = new Date();
-    const { error } = await sb.from("hb_updates").update({ published: true, published_at: now.toISOString(), closes_at: new Date(+now + UPD_OPEN_DAYS * 864e5).toISOString() }).eq("id", u.id);
-    if (error) return toast(errMsg(error), "bad");
+    try { await mustChange(sb.from("hb_updates").update({ published: true, published_at: now.toISOString(), closes_at: new Date(+now + UPD_OPEN_DAYS * 864e5).toISOString() }).eq("id", u.id), "publish"); }
+    catch (e) { return toast(errMsg(e), "bad"); }
     toast("Published. Stores can see it now."); livePing(["hb-all"], "update"); await loadUpdates(); renderUpdates();
   };
   if ($("#uClose")) $("#uClose").onclick = async () => {
     if (!confirm("Close this update now? Stores will stop seeing it. Acknowledgements are kept.")) return;
-    const { error } = await sb.from("hb_updates").update({ closes_at: new Date().toISOString() }).eq("id", u.id);
-    if (error) return toast(errMsg(error), "bad");
+    try { await mustChange(sb.from("hb_updates").update({ closes_at: new Date().toISOString() }).eq("id", u.id), "close it"); }
+    catch (e) { return toast(errMsg(e), "bad"); }
     toast("Closed"); livePing(["hb-all"], "update"); await loadUpdates(); renderUpdates();
   };
   if ($("#uReopen")) $("#uReopen").onclick = async () => {
-    const { error } = await sb.from("hb_updates").update({ closes_at: new Date(Date.now() + UPD_OPEN_DAYS * 864e5).toISOString() }).eq("id", u.id);
-    if (error) return toast(errMsg(error), "bad");
+    try { await mustChange(sb.from("hb_updates").update({ closes_at: new Date(Date.now() + UPD_OPEN_DAYS * 864e5).toISOString() }).eq("id", u.id), "reopen it"); }
+    catch (e) { return toast(errMsg(e), "bad"); }
     toast(`Open again for ${UPD_OPEN_DAYS} days. Video and document files may already have been removed.`); livePing(["hb-all"], "update"); await loadUpdates(); renderUpdates();
   };
   $("#uDel").onclick = async () => {
     if (!confirm(`Delete "${u.title}" with its acknowledgements? This can't be undone.`)) return;
     const keys = (u.media || []).map(m => m.key);
-    const { error } = await sb.from("hb_updates").delete().eq("id", u.id);
-    if (error) return toast(errMsg(error), "bad");
+    try { await mustChange(sb.from("hb_updates").delete().eq("id", u.id), "delete it"); }
+    catch (e) { return toast(errMsg(e), "bad"); }
     if (keys.length) mediaCall({ action: "delete", keys }).catch(() => {});
     U.sel = null; toast("Update deleted"); livePing(["hb-all"], "update"); await loadUpdates(); renderUpdates();
   };
@@ -201,8 +213,7 @@ async function saveUpdate(u, quiet) {
       row.target_values = row.target_kind === "all" ? [] : [...$("#uTList").querySelectorAll("input:checked")].map(i => i.value);
       if (row.target_kind !== "all" && !row.target_values.length) throw new Error("Choose at least one under “Who receives it”");
     }
-    const { error } = await sb.from("hb_updates").update(row).eq("id", u.id);
-    if (error) throw error;
+    await mustChange(sb.from("hb_updates").update(row).eq("id", u.id), "save");
     if (removed.length) mediaCall({ action: "delete", keys: removed }).catch(() => {});
     if (!quiet) toast("Saved");
     if (u.published) livePing(["hb-all"], "update");
@@ -222,7 +233,7 @@ $("#newUpdBtn").onclick = () => {
   $("#nuSave").onclick = async () => {
     const title = $("#nuTitle").value.trim(); if (!title) return toast("Enter a title", "bad");
     const { data, error } = await sb.from("hb_updates").insert({ title }).select().single();
-    if (error) return toast(errMsg(error), "bad");
+    if (error) { if (error.code === "42501" || /row-level security|JWT/i.test(error.message || "")) adminSignedOut(); return toast(error.code === "42501" ? "You've been signed out. Please sign in again." : errMsg(error), "bad"); }
     closeAll(); U.sel = data.id; await loadUpdates(); renderUpdates();
   };
 };
