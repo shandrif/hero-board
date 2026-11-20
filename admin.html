@@ -9,12 +9,12 @@
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#111111">
-<link rel="stylesheet" href="style.css?v=16">
+<link rel="stylesheet" href="style.css?v=17">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-<script src="config.js?v=16"></script>
-<script src="common.js?v=16"></script>
-<script src="export.js?v=16"></script>
+<script src="config.js?v=17"></script>
+<script src="common.js?v=17"></script>
+<script src="export.js?v=17"></script>
 </head>
 <body>
 <div id="splash" role="status" aria-label="Loading Hero Board">
@@ -27,7 +27,7 @@
     <aside>
       <div class="brand"><img class="logo" src="icon.svg" alt=""><div><b>Hero Board</b><small>Weekly hero products</small></div></div>
       <nav id="nav"></nav>
-      <div class="me"><b>Admin</b><span>Hero Board admin</span><br><button class="logoutBtn">Sign out</button></div>
+      <div class="me"><b>Admin</b><span>Hero Board admin</span><br><a class="store-view-link" href="index.html?store=1" target="_blank" rel="noopener">Store sign-in ↗</a><br><button class="logoutBtn">Sign out</button></div>
     </aside>
     <main id="main">
     <!-- DASHBOARD -->
@@ -160,7 +160,7 @@
 <div class="drawer" id="drawer"><div class="dh" id="drawerHead"></div><div class="db" id="drawerBody"></div></div>
 <div class="modal" id="modal"></div>
 
-<script src="motion.js?v=16"></script>
+<script src="motion.js?v=17"></script>
 <script>
 const S = { area: { area_manager: "", rom: "", region: "", city: "", group: "" }, weeks: [], stores: [], storeAcks: [], counts: {}, dashWeek: null, editWeek: null, products: [], sort: { key: "status", dir: 1 }, showPw: false, tab: "dash" };
 const BASE = location.href.replace(/[^/]*([?#].*)?$/, "");
@@ -187,6 +187,33 @@ async function boot() {
   liveConnect(["hb-admin"], refreshLive, 3000);
 }
 function showLogin(msg) { location.replace("index.html" + (msg ? "?m=notadmin" : "")); }
+// ---- the admin login can end while this page is open (signed out in another tab, expired, password changed).
+// Never keep working "blind": show a clear message and send the admin back to sign in.
+let signedOutShown = false;
+function adminSignedOut() {
+  if (signedOutShown) return; signedOutShown = true;
+  $("#modal").innerHTML = `<h2 style="margin-bottom:8px">You've been signed out</h2>
+    <p class="muted">Your admin login ended, for example because you signed out or signed in as a store in another tab. Nothing was changed after that. Please sign in again.</p>
+    <a class="btn block" href="index.html" style="margin-top:14px">Sign in again</a>`;
+  $("#overlay").classList.add("show"); $("#modal").classList.add("show");
+  $("#overlay").onclick = null;
+}
+sb.auth.onAuthStateChange(ev => { if (ev === "SIGNED_OUT") adminSignedOut(); });
+window.addEventListener("storage", e => { if (e.key && e.key.startsWith("hero-board-auth") && !e.newValue) adminSignedOut(); });
+// Writes protected by row-level security "succeed" with 0 rows when the login is gone, so check that a row really changed.
+async function mustChange(q, what = "change") {
+  const { data, error } = await q.select("id");
+  if (error) {
+    if (error.code === "42501" || /JWT|permission|401/i.test(error.message || "")) { adminSignedOut(); throw new Error("You've been signed out. Please sign in again."); }
+    throw error;
+  }
+  if (!data || !data.length) {
+    const { data: s } = await sb.auth.getSession();
+    if (!s.session) { adminSignedOut(); throw new Error("You've been signed out. Please sign in again."); }
+    throw new Error(`Couldn't ${what}: it may have been deleted. Refresh the page.`);
+  }
+  return data;
+}
 document.querySelectorAll(".logoutBtn").forEach(b => b.onclick = async () => {
   b.disabled = true; b.textContent = "Signing out…";
   clearAdminLogin();
@@ -269,7 +296,7 @@ async function refreshLive() {
     ]);
     (st.data || []).forEach(x => { const s = S.stores.find(y => y.id === x.id); if (s) s.total_staff = x.total_staff; });
     if (S.tab === "dash") renderDash(); else if (S.tab === "weeks") renderWeeks();
-    else if (S.tab === "updates" && typeof U !== "undefined" && U.loaded && !document.activeElement?.closest?.("#updEditor .panel:first-child")) { await loadUpdateAcks(U.list.filter(u => u.published).map(u => u.id)); renderUpdates(); }
+    else if (S.tab === "updates" && typeof U !== "undefined" && U.loaded) { await loadUpdateAcks(U.list.filter(u => u.published).map(u => u.id)); refreshUpdateProgress(); }
   } catch {} finally { refreshing = false; }
 }
 async function staffList(weekId, storeId) {
@@ -537,19 +564,16 @@ function renderWeeks() {
     const t = $("#wTitle").value.trim(), s = $("#wStart").value, e = $("#wEnd").value;
     if (!t || !s || !e) return toast("Fill in title and dates", "bad");
     if (e < s) return toast("End date is before start date", "bad");
-    const { error } = await sb.from("hb_weeks").update({ title: t, start_date: s, end_date: e }).eq("id", w.id);
-    if (error) return toast(errMsg(error), "bad");
+    try { await mustChange(sb.from("hb_weeks").update({ title: t, start_date: s, end_date: e }).eq("id", w.id), "save"); } catch (er) { return toast(errMsg(er), "bad"); }
     toast("Saved"); livePing(["hb-all"], "week"); loadAll();
   };
   if ($("#pubBtn")) $("#pubBtn").onclick = async () => {
-    const { error } = await sb.from("hb_weeks").update({ published: true, published_at: new Date().toISOString() }).eq("id", w.id);
-    if (error) return toast(errMsg(error), "bad");
+    try { await mustChange(sb.from("hb_weeks").update({ published: true, published_at: new Date().toISOString() }).eq("id", w.id), "publish"); } catch (er) { return toast(errMsg(er), "bad"); }
     toast("Published. Stores can see it now."); livePing(["hb-all"], "publish"); loadAll();
   };
   if ($("#unpubBtn")) $("#unpubBtn").onclick = async () => {
     if (!confirm("Unpublish this week? Stores will stop seeing it. Acknowledgements are kept.")) return;
-    const { error } = await sb.from("hb_weeks").update({ published: false }).eq("id", w.id);
-    if (error) return toast(errMsg(error), "bad");
+    try { await mustChange(sb.from("hb_weeks").update({ published: false }).eq("id", w.id), "unpublish"); } catch (er) { return toast(errMsg(er), "bad"); }
     toast("Unpublished"); livePing(["hb-all"], "publish"); loadAll();
   };
   $("#delWeekBtn").onclick = async () => {
@@ -795,6 +819,6 @@ function parsePrice(v) { const n = parseFloat(String(v ?? "").replace(/[^0-9.]/g
 
 boot();
 </script>
-<script src="updates.js?v=16"></script>
+<script src="updates.js?v=17"></script>
 </body>
 </html>
