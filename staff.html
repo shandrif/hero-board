@@ -8,10 +8,10 @@
 <link rel="icon" href="favicon-32.png" type="image/png" sizes="32x32">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <meta name="theme-color" content="#111111">
-<link rel="stylesheet" href="style.css?v=19">
+<link rel="stylesheet" href="style.css?v=20">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
-<script src="config.js?v=19"></script>
-<script src="common.js?v=19"></script>
+<script src="config.js?v=20"></script>
+<script src="common.js?v=20"></script>
 </head>
 <body>
 <div id="splash" role="status" aria-label="Loading">
@@ -23,21 +23,21 @@
     <div id="content"></div>
   </main>
 </div>
-<script src="motion.js?v=19"></script>
+<script src="motion.js?v=20"></script>
 <script>
-// One link per store: staff.html?k=<store link key>. Shows this week's heroes + open updates; one confirmation covers all.
-// Older links (?w=…&k=…) keep working: the week part is ignored and the current week is shown.
+// One link per store: staff.html?k=<store link key>[&v=heroes|updates]
+// Two SEPARATE sections, each with its own confirmation: this week's hero products, and open updates.
+// Confirming one never counts as confirming the other. Older links (?w=…&k=…) keep working.
 const P = new URLSearchParams(location.search), K = (P.get("k") || "").trim();
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const meKey = `hb_staff_me_${K}`;      // { name, employee_id, week, updates: [] } for this phone
-let D = null, storeCode = null;
+let D = null, storeCode = null, sec = P.get("v") === "updates" ? "updates" : P.get("v") === "heroes" ? "heroes" : null;
 
 const readMe = () => { try { return JSON.parse(storageGet(meKey) || "null"); } catch { return null; } };
-function pendingFor(me) {
-  const weekPending = !!(D.week && D.products.length) && (!me || me.week !== D.week.id);
-  const upd = D.updates.filter(u => !me || !(me.updates || []).includes(u.id));
-  return { weekPending, upd, any: weekPending || upd.length > 0 };
-}
+const hasWeek = () => !!(D.week && D.products.length);
+const weekPending = me => hasWeek() && (!me || me.week !== D.week.id);
+const updPending = me => D.updates.filter(u => !me || !(me.updates || []).includes(u.id));
+
 async function load() {
   if (!UUID.test(K)) return fail("LINK_INVALID");
   const { data, error } = await sb.rpc("hb_staff_page", { p_key: K });
@@ -45,42 +45,54 @@ async function load() {
   D = data; storeCode = data.store.code;
   HB_MEDIA = { auth: { link_key: K }, label: `${data.store.name} · Staff` };
   $("#hStore").textContent = data.store.name;
-  const hasWeek = !!(D.week && D.products.length);
-  if (!hasWeek && !D.updates.length) {
-    $("#content").innerHTML = `<div class="panel empty"><h2 style="margin-bottom:6px">Nothing to confirm right now</h2>This page shows this week's heroes and any updates for ${esc(data.store.name)}. Check back when your manager shares something new.</div>`;
+  if (!hasWeek() && !D.updates.length) {
+    $("#content").innerHTML = `<div class="panel empty"><h2 style="margin-bottom:6px">Nothing to confirm right now</h2>This page shows this week's hero products and any updates for ${esc(data.store.name)}. Check back when your manager shares something new.</div>`;
     hideSplash(); return;
   }
-  $("#content").innerHTML = `
-    ${D.updates.length ? `<div class="panel"><div class="panel-head"><h2>Updates for you <span class="muted">(${D.updates.length})</span></h2></div>${D.updates.map(u => updateCard(u)).join("")}</div>` : ""}
-    ${hasWeek ? `<div class="hero-banner"><div>
-      <div class="eyebrow">This week's heroes · ${esc(data.store.name)}</div>
+  if (sec === "updates" && !D.updates.length) sec = null;
+  if (sec === "heroes" && !hasWeek()) sec = null;
+  if (!sec) { const me = readMe(); sec = updPending(me).length ? "updates" : hasWeek() ? "heroes" : "updates"; }
+  draw(); hideSplash();
+}
+function draw() {
+  const me = readMe(), nu = updPending(me).length, wp = weekPending(me);
+  const tabs = hasWeek() && D.updates.length ? `<div class="seg" id="sec" role="tablist" style="margin-bottom:14px">
+      <button data-s="heroes" class="${sec === "heroes" ? "on" : ""}">Hero products${wp ? " •" : ""}</button>
+      <button data-s="updates" class="${sec === "updates" ? "on" : ""}">Updates${nu ? ` (${nu})` : ""}</button></div>` : "";
+  $("#content").innerHTML = tabs + (sec === "updates" ? `
+    <div class="panel"><div class="panel-head"><h2>Updates for you <span class="muted">(${D.updates.length})</span></h2></div>${D.updates.map(u => updateCard(u)).join("")}</div>
+    <div class="panel" id="formPanel"></div>` : `
+    <div class="hero-banner"><div>
+      <div class="eyebrow">This week's hero products · ${esc(D.store.name)}</div>
       <div class="wk">${esc(D.week.title)}</div><div class="dates">${fmtDate(D.week.start_date)} – ${fmtDate(D.week.end_date)}</div></div></div>
-      <div class="panel">${productCards(D.products)}</div>` : ""}
-    <div class="panel" id="formPanel"></div>`;
-  drawForm(); hideSplash(); animateEnter($("#content"));
+    <div class="panel">${productCards(D.products)}</div>
+    <div class="panel" id="formPanel"></div>`);
+  document.querySelectorAll("#sec button").forEach(b => b.onclick = () => { sec = b.dataset.s; draw(); window.scrollTo(0, 0); });
+  drawForm(); animateEnter($("#content"));
 }
 function drawForm(forceNew) {
-  const me = readMe(), p = pendingFor(forceNew ? null : me);
-  if (!p.any && me && !forceNew) { $("#formPanel").innerHTML = doneHTML(me); bindForm(); return; }
-  const what = [p.weekPending ? "this week's heroes" : "", p.upd.length ? `${p.upd.length} update${p.upd.length > 1 ? "s" : ""}` : ""].filter(Boolean).join(" and ");
-  const known = me && !forceNew;
+  const me = readMe(), known = me && !forceNew;
+  const pending = sec === "updates" ? updPending(forceNew ? null : me).length > 0 : weekPending(forceNew ? null : me);
+  if (!pending && known) { $("#formPanel").innerHTML = doneHTML(me); bindForm(); return; }
+  const what = sec === "updates" ? (D.updates.length > 1 ? "these updates" : "this update") : "this week's hero products";
   $("#formPanel").innerHTML = `
       <h2 style="margin-bottom:4px">${known ? `${esc(me.name)}, please confirm ${what}` : `Confirm you know ${what}`}</h2>
-      <p class="muted small" style="margin:0 0 14px">${known ? "Something new was added since you last confirmed. Read or watch it above, then tap below." : "Read and watch everything above, then enter your details."}</p>
+      <p class="muted small" style="margin:0 0 14px">${sec === "updates" ? "Read the update and watch the video above, then enter your details." : "Read the hero products above, then enter your details."}</p>
       <form id="f">
         <div class="field"><label for="fName">Your full name</label><input id="fName" autocomplete="name" required maxlength="80" value="${known ? esc(me.name) : ""}"></div>
         <div class="field"><label for="fId">Employee ID</label><input id="fId" required maxlength="30" autocapitalize="characters" value="${known ? esc(me.employee_id) : ""}"></div>
         <div class="err" id="fErr"></div>
-        <button class="btn teal big block" id="fBtn" type="submit" style="margin-top:6px">${ICON.check}I'm aware of all of the above</button>
+        <button class="btn teal big block" id="fBtn" type="submit" style="margin-top:6px">${ICON.check}${sec === "updates" ? `I'm aware of ${what}` : "I'm aware of these heroes"}</button>
       </form>`;
-  bindForm(p);
+  bindForm(forceNew);
 }
-function bindForm(p) {
+function bindForm(forceNew) {
   const f = $("#f");
   if (f) f.onsubmit = async e => {
     e.preventDefault(); $("#fErr").textContent = ""; $("#fBtn").disabled = true;
-    const ids = (p || pendingFor(null)).upd.map(u => u.id);
-    const weekId = (p ? p.weekPending : !!D.week) && D.week ? D.week.id : null;
+    const me0 = forceNew ? null : readMe();
+    const weekId = sec === "heroes" && D.week ? D.week.id : null;
+    const ids = sec === "updates" ? updPending(me0).map(u => u.id) : [];
     const { data: r, error } = await sb.rpc("hb_staff_confirm", { p_key: K, p_employee_id: $("#fId").value, p_name: $("#fName").value, p_week_id: weekId, p_update_ids: ids });
     if (error) { $("#fBtn").disabled = false; return ($("#fErr").textContent = errMsg(error)); }
     const prev = readMe(), same = prev && prev.employee_id === r.employee_id;
@@ -89,18 +101,21 @@ function bindForm(p) {
       updates: [...new Set([...(same ? prev.updates || [] : []), ...(r.updates || [])])] };
     storageSet(meKey, JSON.stringify(me));
     livePing(["hb-admin", "hb-store-" + storeCode], "staff");
-    $("#formPanel").innerHTML = doneHTML(me); bindForm();
+    draw();
   };
   const other = $("#otherBtn");
   if (other) other.onclick = () => { drawForm(true); $("#fName").focus(); };
 }
 function doneHTML(me) {
+  const other = sec === "updates" ? (weekPending(me) ? "heroes" : null) : (updPending(me).length ? "updates" : null);
   return `<div style="text-align:center;padding:10px 0">
     <div class="big-check">${ICON.check.replace("<svg", '<svg width="30" height="30"')}</div>
     <h2>Thank you, ${esc(me.name)}!</h2>
-    <p class="muted">Confirmed on ${fmtDateTime(me.acked_at)}.</p>
+    <p class="muted">You confirmed ${sec === "updates" ? "the update" : "this week's hero products"}.</p>
+    ${other ? `<button class="btn" id="goOther" style="margin:6px 6px 0">Next: confirm ${other === "updates" ? "the updates" : "this week's hero products"}</button>` : ""}
     <button class="btn ghost" id="otherBtn" style="margin-top:6px">Confirm for another staff member</button></div>`;
 }
+document.addEventListener("click", e => { if (e.target.closest && e.target.closest("#goOther")) { sec = sec === "updates" ? "heroes" : "updates"; draw(); window.scrollTo(0, 0); } });
 function fail(m) {
   $("#content").innerHTML = `<div class="panel empty"><h2 style="margin-bottom:6px">Link not working</h2>${esc(errMsg({ message: m }))}</div>`;
   hideSplash();
