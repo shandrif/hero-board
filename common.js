@@ -20,8 +20,11 @@ function errMsg(e) {
   const m = (e && (e.message || e.error_description)) || String(e);
   if (m.includes("SESSION_EXPIRED")) return "Your session has ended. Please log in again.";
   if (m.includes("LINK_INVALID")) return "This link is not valid. Please ask your store manager for the latest link.";
+  if (m.includes("WEEK_CHANGED")) return "A newer hero week has just been published. The page has been refreshed, please check it again.";
+  if (m.includes("UPDATE_CLOSED")) return "This update has just been closed or changed. The page has been refreshed.";
+  if (m.includes("RELOAD")) return "This page is out of date. Please reload it and try again.";
   if (m.includes("LINK_OLD")) return "This link is for an old week. Please ask your store manager for this week's link.";
-  if (m.includes("Failed to fetch")) return "No internet connection. Please try again.";
+  if (/Failed to fetch|Load failed|NetworkError|Failed to send a request|network/i.test(m)) return "No internet connection, or the connection is weak. Please try again.";
   return m;
 }
 function toast(msg, kind = "ok") {
@@ -33,8 +36,15 @@ function toast(msg, kind = "ok") {
 function clearAdminLogin() {
   try { Object.keys(localStorage).filter(k => k.startsWith("hero-board-auth")).forEach(k => localStorage.removeItem(k)); } catch {} // Hero Board only, never Trackit
 }
-function storageGet(k) { try { return localStorage.getItem(k); } catch { return null; } }
-function storageSet(k, v) { try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k, v); } catch {} }
+// Some in-app browsers block storage: keep an in-memory copy so the page still works for this visit.
+const memStore = {};
+function storageGet(k) { try { const v = localStorage.getItem(k); if (v != null) return v; } catch {} return k in memStore ? memStore[k] : null; }
+function storageSet(k, v) { if (v == null) delete memStore[k]; else memStore[k] = v; try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k, v); } catch {} }
+// Copy text; if the browser refuses (some in-app browsers), show it so it can be copied by hand.
+function copyText(text, done = "Link copied") {
+  const fallback = () => window.prompt("Copy this:", text);
+  try { navigator.clipboard.writeText(text).then(() => toast(done), fallback); } catch { fallback(); }
+}
 
 // Live updates over small broadcast channels:
 //   hb-all          → every store (new week published / products changed)
@@ -43,10 +53,12 @@ function storageSet(k, v) { try { v == null ? localStorage.removeItem(k) : local
 const hbChannels = {};
 function hbChannel(name) { return hbChannels[name] || (hbChannels[name] = sb.channel(name)); }
 function liveConnect(names, onPing, delay = 1500) {
-  let t = null;
-  const fire = () => { clearTimeout(t); t = setTimeout(onPing, delay); };
+  // at most one refresh every 10 s, however many pings arrive (protects the database from bursts)
+  let t = null, last = 0;
+  const run = () => { last = Date.now(); onPing(); };
+  const fire = () => { clearTimeout(t); t = setTimeout(run, Math.max(delay, last + 10000 - Date.now())); };
   names.forEach(n => hbChannel(n).on("broadcast", { event: "refresh" }, fire).subscribe());
-  setInterval(() => { if (!document.hidden) onPing(); }, 300000); // safety net every 5 min, only while the page is open on screen
+  setInterval(() => { if (!document.hidden) run(); }, 300000); // safety net every 5 min, only while the page is open on screen
   document.addEventListener("visibilitychange", () => { if (!document.hidden) fire(); });
 }
 function livePing(names, what) {
@@ -84,9 +96,17 @@ async function mediaCall(body) {
   }
   return data;
 }
-function closeMedia() { const v = document.getElementById("mediaView"); if (v) { v.querySelectorAll("video").forEach(x => { x.pause(); x.removeAttribute("src"); x.load(); }); v.remove(); } document.body.classList.remove("media-open"); }
+function closeMedia(fromHistory) {
+  const v = document.getElementById("mediaView");
+  if (v) { v.querySelectorAll("video").forEach(x => { x.pause(); x.removeAttribute("src"); x.load(); }); v.remove(); }
+  document.body.classList.remove("media-open");
+  if (!fromHistory && history.state && history.state.hbMedia) history.back();   // drop the step added when it opened
+}
+// Phone "Back" closes the viewer instead of leaving the page
+window.addEventListener("popstate", () => { if (document.getElementById("mediaView")) closeMedia(true); });
 async function openMedia(p, kind) {
-  closeMedia();
+  if (document.getElementById("mediaView")) closeMedia(true);
+  else try { history.pushState({ hbMedia: 1 }, ""); } catch {}
   const items = (p.media || []).filter(x => x.kind === kind).sort((a, b) => (a.page || 0) - (b.page || 0));
   if (!items.length) return;
   const wm = esc(`${HB_MEDIA.label ? HB_MEDIA.label + " · " : ""}${new Date().toLocaleDateString("en-GB", { timeZone: TZ })} · Confidential`);
@@ -102,15 +122,16 @@ async function openMedia(p, kind) {
   catch (e) { box.querySelector(".mv-body").innerHTML = `<p class="mv-msg">${esc(errMsg(e))}</p>`; return; }
   if (!document.body.contains(box)) return;
   const mark = `<div class="mv-wm" aria-hidden="true">${Array.from({ length: 14 }, () => `<span>${wm}</span>`).join("")}</div>`;
-  const gone = `<p class="mv-msg">This file is no longer available. Media is removed 7 days after upload.</p>`;
+  const gone = `<p class="mv-msg">Couldn't play this file. Check your connection and <button class="btn ghost sm" data-mv-retry>try again</button>.<br><span style="opacity:.7">Files are removed 7 days after they are uploaded.</span></p>`;
   const body = box.querySelector(".mv-body");
+  const bindRetry = () => { const r = body.querySelector("[data-mv-retry]"); if (r) r.onclick = () => { closeMedia(true); openMedia(p, kind); }; };
   if (kind === "video") {
     const u = urls[items[0].key];
     body.innerHTML = u ? `<div class="mv-frame"><video controls playsinline autoplay preload="metadata" controlslist="nodownload noremoteplayback noplaybackrate" disablepictureinpicture disableremoteplayback src="${esc(u)}"></video>${mark}</div>` : gone;
-    const v = body.querySelector("video"); if (v) v.onerror = () => (body.innerHTML = gone);
+    const v = body.querySelector("video"); if (v) v.onerror = () => { body.innerHTML = gone; bindRetry(); };
   } else {
     body.innerHTML = items.map(x => urls[x.key] ? `<div class="mv-frame mv-page"><img src="${esc(urls[x.key])}" alt="Page ${x.page || 1}" draggable="false">${mark}</div>` : "").join("") || gone;
-    body.querySelectorAll("img").forEach(img => img.onerror = () => img.closest(".mv-page").outerHTML = gone);
+    body.querySelectorAll("img").forEach(img => img.onerror = () => { body.innerHTML = gone; bindRetry(); });
   }
 }
 document.addEventListener("click", e => {
@@ -146,7 +167,7 @@ function updateCard(u, extra = "") {
   const d = Math.max(0, Math.ceil((new Date(u.closes_at) - Date.now()) / 864e5));
   return `<article class="upd-card">
     <div class="upd-top"><span class="upd-icon">${ICON.bell}</span><div style="flex:1;min-width:0"><h3>${esc(u.title)}</h3>
-      <div class="muted small">${fmtDateTime(u.published_at)} · open ${d} more day${d === 1 ? "" : "s"}</div></div></div>
+      <div class="muted small">${fmtDateTime(u.published_at)} · ${d <= 1 ? "closes within a day" : `open ${d} more days`}</div></div></div>
     ${u.message ? `<p class="upd-msg">${esc(u.message)}</p>` : ""}
     ${mediaChips(u, "u" + u.id)}
     ${extra}

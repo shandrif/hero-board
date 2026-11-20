@@ -8,10 +8,10 @@
 <link rel="icon" href="favicon-32.png" type="image/png" sizes="32x32">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <meta name="theme-color" content="#111111">
-<link rel="stylesheet" href="style.css?v=20">
+<link rel="stylesheet" href="style.css?v=21">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
-<script src="config.js?v=20"></script>
-<script src="common.js?v=20"></script>
+<script src="config.js?v=21"></script>
+<script src="common.js?v=21"></script>
 </head>
 <body>
 <div id="splash" role="status" aria-label="Loading">
@@ -23,7 +23,7 @@
     <div id="content"></div>
   </main>
 </div>
-<script src="motion.js?v=20"></script>
+<script src="motion.js?v=21"></script>
 <script>
 // One link per store: staff.html?k=<store link key>[&v=heroes|updates]
 // Two SEPARATE sections, each with its own confirmation: this week's hero products, and open updates.
@@ -31,7 +31,11 @@
 const P = new URLSearchParams(location.search), K = (P.get("k") || "").trim();
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const meKey = `hb_staff_me_${K}`;      // { name, employee_id, week, updates: [] } for this phone
-let D = null, storeCode = null, sec = P.get("v") === "updates" ? "updates" : P.get("v") === "heroes" ? "heroes" : null;
+let D = null, storeCode = null, lastOther = null;
+// old links (?w=…) were always for the hero week
+let sec = P.get("v") === "updates" ? "updates" : P.get("v") === "heroes" ? "heroes" : P.has("w") ? "heroes" : null;
+// same cleaning as the database: Arabic digits -> 0-9, letters and digits only, upper case
+const normId = v => String(v || "").replace(/[٠-٩]/g, d => "٠١٢٣٤٥٦٧٨٩".indexOf(d)).replace(/[۰-۹]/g, d => "۰۱۲۳۴۵۶۷۸۹".indexOf(d)).replace(/[^A-Za-z0-9]/g, "").toUpperCase();
 
 const readMe = () => { try { return JSON.parse(storageGet(meKey) || "null"); } catch { return null; } };
 const hasWeek = () => !!(D.week && D.products.length);
@@ -41,7 +45,7 @@ const updPending = me => D.updates.filter(u => !me || !(me.updates || []).includ
 async function load() {
   if (!UUID.test(K)) return fail("LINK_INVALID");
   const { data, error } = await sb.rpc("hb_staff_page", { p_key: K });
-  if (error) return fail(error.message);
+  if (error) return fail(error.message, /LINK_INVALID/.test(error.message) ? null : load);
   D = data; storeCode = data.store.code;
   HB_MEDIA = { auth: { link_key: K }, label: `${data.store.name} · Staff` };
   $("#hStore").textContent = data.store.name;
@@ -75,26 +79,34 @@ function drawForm(forceNew) {
   const pending = sec === "updates" ? updPending(forceNew ? null : me).length > 0 : weekPending(forceNew ? null : me);
   if (!pending && known) { $("#formPanel").innerHTML = doneHTML(me); bindForm(); return; }
   const what = sec === "updates" ? (D.updates.length > 1 ? "these updates" : "this update") : "this week's hero products";
+  const hasVideo = sec === "updates" && D.updates.some(u => (u.media || []).some(m => m.kind === "video"));
   $("#formPanel").innerHTML = `
-      <h2 style="margin-bottom:4px">${known ? `${esc(me.name)}, please confirm ${what}` : `Confirm you know ${what}`}</h2>
-      <p class="muted small" style="margin:0 0 14px">${sec === "updates" ? "Read the update and watch the video above, then enter your details." : "Read the hero products above, then enter your details."}</p>
+      <h2 style="margin-bottom:4px">Confirm you know ${what}</h2>
+      ${known ? `<p class="small" style="margin:0 0 10px;padding:8px 10px;border-radius:10px;background:var(--amber-soft)">Filled in for <b>${esc(me.name)}</b> (${esc(me.employee_id)}). <a href="#" id="notMe">Not you? Enter your own details</a></p>` : ""}
+      <p class="muted small" style="margin:0 0 14px">${sec === "updates" ? `Read the update${hasVideo ? " and watch the video" : ""} above, then enter your details.` : "Read the hero products above, then enter your details."}</p>
       <form id="f">
         <div class="field"><label for="fName">Your full name</label><input id="fName" autocomplete="name" required maxlength="80" value="${known ? esc(me.name) : ""}"></div>
-        <div class="field"><label for="fId">Employee ID</label><input id="fId" required maxlength="30" autocapitalize="characters" value="${known ? esc(me.employee_id) : ""}"></div>
+        <div class="field"><label for="fId">Employee ID</label><input id="fId" required maxlength="30" autocapitalize="characters" autocomplete="off" placeholder="e.g. 7866" value="${known ? esc(me.employee_id) : ""}"></div>
         <div class="err" id="fErr"></div>
         <button class="btn teal big block" id="fBtn" type="submit" style="margin-top:6px">${ICON.check}${sec === "updates" ? `I'm aware of ${what}` : "I'm aware of these heroes"}</button>
       </form>`;
   bindForm(forceNew);
+  const nm = $("#notMe"); if (nm) nm.onclick = e => { e.preventDefault(); drawForm(true); $("#fName").focus(); };
 }
 function bindForm(forceNew) {
   const f = $("#f");
   if (f) f.onsubmit = async e => {
     e.preventDefault(); $("#fErr").textContent = ""; $("#fBtn").disabled = true;
-    const me0 = forceNew ? null : readMe();
+    let me0 = forceNew ? null : readMe();
+    if (me0 && normId($("#fId").value) !== normId(me0.employee_id)) me0 = null;   // a different person: confirm everything shown
     const weekId = sec === "heroes" && D.week ? D.week.id : null;
     const ids = sec === "updates" ? updPending(me0).map(u => u.id) : [];
     const { data: r, error } = await sb.rpc("hb_staff_confirm", { p_key: K, p_employee_id: $("#fId").value, p_name: $("#fName").value, p_week_id: weekId, p_update_ids: ids });
-    if (error) { $("#fBtn").disabled = false; return ($("#fErr").textContent = errMsg(error)); }
+    if (error) {
+      if (/WEEK_CHANGED|UPDATE_CLOSED|RELOAD/.test(error.message)) { toast(errMsg(error), "bad"); sec = null; return load(); }
+      $("#fBtn").disabled = false; return ($("#fErr").textContent = errMsg(error));
+    }
+    lastOther = r.other_name || null;
     const prev = readMe(), same = prev && prev.employee_id === r.employee_id;
     const me = { name: r.name, employee_id: r.employee_id, acked_at: r.acked_at,
       week: r.week ? D.week.id : (same ? prev.week : null),
@@ -104,7 +116,7 @@ function bindForm(forceNew) {
     draw();
   };
   const other = $("#otherBtn");
-  if (other) other.onclick = () => { drawForm(true); $("#fName").focus(); };
+  if (other) other.onclick = () => { lastOther = null; drawForm(true); $("#fName").focus(); };
 }
 function doneHTML(me) {
   const other = sec === "updates" ? (weekPending(me) ? "heroes" : null) : (updPending(me).length ? "updates" : null);
@@ -112,12 +124,14 @@ function doneHTML(me) {
     <div class="big-check">${ICON.check.replace("<svg", '<svg width="30" height="30"')}</div>
     <h2>Thank you, ${esc(me.name)}!</h2>
     <p class="muted">You confirmed ${sec === "updates" ? "the update" : "this week's hero products"}.</p>
+    ${lastOther ? `<p class="small" style="padding:8px 10px;border-radius:10px;background:var(--amber-soft);text-align:left">Note: Employee ID <b>${esc(me.employee_id)}</b> was already confirmed under the name <b>${esc(lastOther)}</b>. If that isn't you, please check your Employee ID and confirm again.</p>` : ""}
     ${other ? `<button class="btn" id="goOther" style="margin:6px 6px 0">Next: confirm ${other === "updates" ? "the updates" : "this week's hero products"}</button>` : ""}
     <button class="btn ghost" id="otherBtn" style="margin-top:6px">Confirm for another staff member</button></div>`;
 }
-document.addEventListener("click", e => { if (e.target.closest && e.target.closest("#goOther")) { sec = sec === "updates" ? "heroes" : "updates"; draw(); window.scrollTo(0, 0); } });
-function fail(m) {
-  $("#content").innerHTML = `<div class="panel empty"><h2 style="margin-bottom:6px">Link not working</h2>${esc(errMsg({ message: m }))}</div>`;
+document.addEventListener("click", e => { if (e.target.closest && e.target.closest("#goOther")) { lastOther = null; sec = sec === "updates" ? "heroes" : "updates"; draw(); window.scrollTo(0, 0); } });
+function fail(m, retry) {
+  $("#content").innerHTML = `<div class="panel empty"><h2 style="margin-bottom:6px">${retry ? "Couldn't load" : "Link not working"}</h2>${esc(errMsg({ message: m }))}${retry ? `<div style="margin-top:14px"><button class="btn" id="retryBtn">Try again</button></div>` : ""}</div>`;
+  if (retry) $("#retryBtn").onclick = () => { $("#content").innerHTML = `<p class="empty">Loading…</p>`; retry(); };
   hideSplash();
 }
 load();

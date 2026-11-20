@@ -64,6 +64,7 @@ const fill = argb => ({ type: "pattern", pattern: "solid", fgColor: { argb } });
 const thin = argb => ({ style: "thin", color: { argb } });
 const boxBorder = argb => ({ top: thin(argb), left: thin(argb), bottom: thin(argb), right: thin(argb) });
 function setCell(ws, addr, value, style = {}) {
+  if (typeof value === "number" && !Number.isFinite(value)) value = null;
   const c = ws.getCell(addr); c.value = value;
   c.font = { name: XL_FONT, size: 11, color: { argb: XL.ink }, ...(style.font || {}) };
   if (style.fill) c.fill = fill(style.fill);
@@ -157,8 +158,8 @@ async function buildWeekReport(ctx) {
   kpiTile(d, 4, 3, "STORES ACKNOWLEDGED", S0.ackRate, `${S0.acked} of ${S0.n} stores`, XL.tealD, PCT);
   kpiTile(d, 4, 5, "ON TIME (≤ 24 H)", S0.onTimeRate, `${S0.onTime} on time · ${S0.late} late`, S0.onTimeRate >= 0.85 ? XL.tealD : XL.amber, PCT);
   kpiTile(d, 4, 7, "NOT ACKNOWLEDGED", S0.pending, S0.pending ? "stores still pending" : "every store acknowledged", S0.pending ? XL.red : XL.tealD, INT);
-  kpiTile(d, 4, 9, "STAFF COVERAGE", S0.staffRate, S0.staffTotal ? `${S0.staffAware} of ${S0.staffTotal} staff aware` : "no store has set a staff count", XL.tanD, PCT);
-  kpiTile(d, 4, 11, "FULLY COMPLIANT STORES", S0.compliant, `of ${S0.n} · acknowledged + all staff aware`, XL.ink, INT);
+  kpiTile(d, 4, 9, "STAFF COVERAGE", XL_MGR_ONLY ? "—" : S0.staffRate, XL_MGR_ONLY ? "managers only: no staff sign-off" : S0.staffTotal ? `${S0.staffAware} of ${S0.staffTotal} staff aware` : "no store has set a staff count", XL.tanD, PCT);
+  kpiTile(d, 4, 11, "FULLY COMPLIANT STORES", S0.compliant, XL_MGR_ONLY ? `of ${S0.n} · manager acknowledged` : `of ${S0.n} · acknowledged + all staff aware`, XL.ink, INT);
   d.getRow(4).height = 18; d.getRow(5).height = 36; d.getRow(6).height = 28;
 
   // Status mix + quick facts
@@ -178,7 +179,7 @@ async function buildWeekReport(ctx) {
   sectionTitle(d, r, 8, 12, "Quick facts");
   const facts = [
     ["Stores in scope", S0.n, INT], ["Median time to acknowledge", S0.medianHours, HRS],
-    ["Total staff sign-offs", S0.signoffs, INT], ["Stores without a staff count", S0.noCount, INT],
+    ...(XL_MGR_ONLY ? [["Acknowledged late (after 24 h)", S0.late, INT], ["Still pending", S0.pending, INT]] : [["Total staff sign-offs", S0.signoffs, INT], ["Stores without a staff count", S0.noCount, INT]]),
   ];
   facts.forEach(([k, v, f], i) => {
     const rr = r + 1 + i; d.mergeCells(rr, 8, rr, 11);
@@ -226,9 +227,13 @@ async function buildWeekReport(ctx) {
   [
     ["Acknowledged", `The store manager tapped “I acknowledge” for this ${ctx.update ? "update" : "week"}.`],
     ["On time", `Acknowledged within 24 hours of the ${ctx.update ? "update" : "week"} being published.`],
+    ...(XL_MGR_ONLY ? [
+    ["Staff coverage", "Not measured: this update only needed the store manager's acknowledgement."],
+    ["Compliant store", "The store manager acknowledged."],
+    ["Compliance score", "Share of stores whose manager acknowledged."]] : [
     ["Staff coverage", "Staff who tapped “I'm aware”, divided by each store's total staff (stores without a staff count are left out)."],
     ["Compliant store", "Acknowledged, and every staff member is aware."],
-    ["Compliance score", "50% store acknowledgement rate + 50% staff coverage rate."],
+    ["Compliance score", "50% store acknowledgement rate + 50% staff coverage rate."]]),
     ["Rating", "Good ≥ 85% · Needs attention 60–84% · At risk < 60%."],
   ].forEach(([k, v], i) => {
     const rr = r + 1 + i; d.mergeCells(rr, 1, rr, 2); d.mergeCells(rr, 3, rr, 12);
@@ -284,9 +289,9 @@ async function buildWeekReport(ctx) {
   const follow = rows.filter(x => storeCompliance(x) !== "Compliant").map(x => ({ ...x, issue: x.status === "Pending" ? "Not acknowledged" : !x.total ? "Staff count not set" : "Staff incomplete" }))
     .sort((a, b) => (a.area_manager || "~").localeCompare(b.area_manager || "~") || ["Not acknowledged", "Staff incomplete", "Staff count not set"].indexOf(a.issue) - ["Not acknowledged", "Staff incomplete", "Staff count not set"].indexOf(b.issue) || a.code.localeCompare(b.code));
   const fCols = [
-    { h: "Area manager", get: x => tc(x.area_manager) || "Not set", bold: true, w: 22 }, { h: "ROM", get: x => tc(x.rom), w: 18 },
+    { h: "Area manager", get: x => x.code ? tc(x.area_manager) || "Not set" : "", bold: true, w: 22 }, { h: "ROM", get: x => tc(x.rom), w: 18 },
     { h: "Store ID", key: "code", w: 10 }, { h: "Store", key: "name", w: 34 }, { h: "City", key: "city", w: 14 },
-    { h: "Issue", key: "issue", status: true, w: 20 }, { h: "Staff", get: x => x.total ? `${x.staffN} / ${x.total}` : x.staffN ? String(x.staffN) : "—", align: "center", w: 10 },
+    { h: "Issue", key: "issue", status: true, w: 20 }, { h: "Staff", get: x => !x.code ? "" : x.total ? `${x.staffN} / ${x.total}` : x.staffN ? String(x.staffN) : "—", align: "center", w: 10 },
     { h: "Missing staff", get: x => x.total ? Math.max(0, x.total - x.staffN) : null, fmt: INT, w: 11 },
     { h: "Action needed", get: actionFor, w: 46 },
   ];
@@ -304,7 +309,7 @@ async function buildWeekReport(ctx) {
     { h: "#", get: x => x._i, fmt: INT, w: 6 }, { h: "Employee name", key: "staff_name", bold: true, w: 28 }, { h: "Employee ID", key: "employee_id", w: 14 },
     { h: "Store ID", get: x => x.st.code, w: 10 }, { h: "Store", get: x => x.st.name, w: 32 }, { h: "Area manager", get: x => tc(x.st.area_manager), w: 20 },
     { h: "ROM", get: x => tc(x.st.rom), w: 18 }, { h: "Region", get: x => x.st.region, w: 16 }, { h: "City", get: x => x.st.city, w: 14 },
-    { h: "Acknowledged at", get: x => xlDate(x.acked_at), fmt: DT, w: 22 }, { h: "Hours after publish", get: x => Math.round((new Date(x.acked_at) - pub) / 36e5 * 10) / 10, fmt: "0.0", w: 11 },
+    { h: "Acknowledged at", get: x => xlDate(x.acked_at), fmt: DT, w: 22 }, { h: "Hours after publish", get: x => x.acked_at ? Math.round((new Date(x.acked_at) - pub) / 36e5 * 10) / 10 : null, fmt: "0.0", w: 11 },
   ];
   s.columns = sCols.map(c => ({ width: c.w }));
   banner(s, sCols.length, `${w.title} · Staff acknowledgements (${staff.length})`, sub);
@@ -348,7 +353,9 @@ async function buildWeekReport(ctx) {
 }
 function rating(v) { return v == null ? "" : v >= 0.85 ? "Good" : v >= 0.6 ? "Needs attention" : "At risk"; }
 function actionFor(r) {
-  if (r.status === "Pending") return "Acknowledge in Hero Board, then share the staff link";
+  if (!r.code) return "";                              // "all done" placeholder row
+  if (r.status === "Pending") return XL_MGR_ONLY ? "Acknowledge in Hero Board" : "Acknowledge in Hero Board, then share the staff link";
+  if (XL_MGR_ONLY) return "";
   if (!r.total) return "Set the store's total staff count";
   if (r.staffN < r.total) return `${r.total - r.staffN} staff still to tap “I'm aware”`;
   return "";
