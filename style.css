@@ -416,3 +416,9 @@ label.check input{width:18px;height:18px;flex:none;accent-color:var(--ink)}
 
 .store-view-link{display:inline-block;margin:6px 0 4px;font-size:12px;color:var(--tan);text-decoration:none}
 .store-view-link:hover{text-decoration:underline}
+
+/* ---- dashboard mode switch (Hero products | Updates) ---- */
+.seg{display:inline-flex;gap:4px;padding:4px;border-radius:12px;background:rgba(255,255,255,.55);border:1px solid var(--line);margin-bottom:10px}
+.seg button{border:0;background:transparent;font:inherit;font-size:13px;font-weight:700;color:var(--muted);padding:7px 14px;border-radius:9px;cursor:pointer;transition:background 150ms var(--ease-out),color 150ms var(--ease-out)}
+.seg button.on{background:var(--ink);color:#fff}
+.seg button:not(.on):hover{color:var(--ink)}

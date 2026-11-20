@@ -11,10 +11,10 @@
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#111111">
 <meta name="apple-mobile-web-app-title" content="Hero Board">
-<link rel="stylesheet" href="style.css?v=17">
+<link rel="stylesheet" href="style.css?v=19">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
-<script src="config.js?v=17"></script>
-<script src="common.js?v=17"></script>
+<script src="config.js?v=19"></script>
+<script src="common.js?v=19"></script>
 </head>
 <body>
 <div id="splash" role="status" aria-label="Loading Hero Board">
@@ -54,7 +54,7 @@
   <div class="bottom-nav" id="bnav"></div>
 </div>
 
-<script src="motion.js?v=17"></script>
+<script src="motion.js?v=19"></script>
 <script>
 let token = storageGet("hb_store_token"), D = null, lastWeek = storageGet("hb_last_week"), view = "heroes";
 const BASE = location.href.replace(/[^/]*([?#].*)?$/, "");
@@ -141,14 +141,46 @@ function waStaffHref(subject) {
   const msg = `*${subject}* – ${D.store.name}\n\nPlease open this link, read or watch everything and tap "I'm aware":\n${staffLink()}`;
   return "https://wa.me/?text=" + encodeURIComponent(msg);
 }
+// ---------- Staff tab: separate lists for hero products and for updates ----------
+let staffMode = "heroes";
+function staffSeg() {
+  const nu = (D.updates || []).filter(u => u.require_staff).length;
+  return `<div class="seg" id="sMode" role="tablist"><button data-m="heroes" class="${staffMode === "heroes" ? "on" : ""}">Hero products</button><button data-m="updates" class="${staffMode === "updates" ? "on" : ""}">Updates${nu ? ` (${nu})` : ""}</button></div>`;
+}
+function bindStaffSeg() { document.querySelectorAll("#sMode button").forEach(b => b.onclick = () => { if (staffMode === b.dataset.m) return; staffMode = b.dataset.m; render(); animateEnter($("#content")); }); }
+function staffListHTML(list) {
+  return list.length ? `<ul class="list">${list.map(s => `<li><span><b>${esc(s.staff_name)}</b> <span class="muted small mono">${esc(s.employee_id)}</span></span><span class="muted small">${fmtDateTime(s.acked_at)}</span></li>`).join("")}</ul>` : `<p class="empty">No staff have confirmed yet.</p>`;
+}
+function renderStaffUpdates() {
+  const total = D.store.total_staff || 0, list = D.updates || [];
+  $("#content").innerHTML = `
+    <div class="top"><div><h1>Staff sign-off</h1><p>Updates · ${esc(D.store.name)}</p></div><span class="live"><i></i>Live</span></div>
+    ${staffSeg()}
+    ${list.length ? list.map(u => {
+      const n = (u.staff || []).length;
+      return `<div class="panel">
+        <div class="panel-head"><div><h2>${esc(u.title)}</h2><div class="muted small">Update · open until ${fmtDateTime(u.closes_at)}</div></div>
+          ${u.require_staff && u.ack ? `<div class="row"><a class="btn wa" target="_blank" rel="noopener" href="${esc(waStaffHref(u.title))}">${ICON.wa}Share on WhatsApp</a><button class="btn ghost" data-copy="1">${ICON.copy}Copy link</button></div>` : ""}</div>
+        ${!u.require_staff ? `<p class="muted">Managers only: no staff sign-off needed for this update.</p>`
+          : !u.ack ? `<div class="empty" style="padding:14px 0">Acknowledge this update first, then share it with your staff.<div style="margin-top:12px"><button class="btn" data-goupd="1">Go to Updates</button></div></div>`
+          : `<div class="row" style="gap:10px;margin-bottom:10px"><b style="font-size:22px">${n}</b><span class="muted">of ${total || "?"} staff confirmed${total && n >= total ? " ✓" : ""}</span>
+              ${total ? `<div class="meter tan" style="flex:1;min-width:120px"><i style="width:${Math.min(100, pct(n, total))}%"></i></div>` : ""}</div>
+            <h3 style="margin:6px 0 8px">Who has confirmed <span class="muted">(${n})</span></h3>${staffListHTML(u.staff || [])}`}
+      </div>`;
+    }).join("") : `<div class="panel empty"><h2 style="margin-bottom:6px">No open updates</h2>When a new update needs your staff's confirmation, it appears here.</div>`}`;
+  bindStaffSeg();
+  $("#content").querySelectorAll("[data-copy]").forEach(b => b.onclick = () => navigator.clipboard.writeText(staffLink()).then(() => toast("Link copied")));
+  $("#content").querySelectorAll("[data-goupd]").forEach(b => b.onclick = () => go("updates"));
+}
 function renderUpdatesView() {
   const list = D.updates || [], total = D.store.total_staff || 0;
   $("#content").innerHTML = `
     <div class="top"><div><h1>Updates</h1><p>${esc(D.store.name)} · recipe changes, training and announcements</p></div><span class="live"><i></i>Live</span></div>
     ${list.length ? `<div class="panel">${list.map(u => updateCard(u, `<div class="upd-actions">
-      ${u.ack ? `<span class="chip ok">Acknowledged ${fmtDateTime(u.ack)}</span>${u.require_staff ? `<span class="muted small">${u.staff_n} of ${total || "?"} staff confirmed</span><a class="btn wa sm" target="_blank" rel="noopener" href="${esc(waStaffHref(u.title))}">${ICON.wa}Share with staff</a>` : `<span class="muted small">Managers only, no staff sign-off needed</span>`}`
+      ${u.ack ? `<span class="chip ok">Acknowledged ${fmtDateTime(u.ack)}</span>${u.require_staff ? `<button class="btn ghost sm" data-seestaff="1">${u.staff_n} of ${total || "?"} staff confirmed</button><a class="btn wa sm" target="_blank" rel="noopener" href="${esc(waStaffHref(u.title))}">${ICON.wa}Share with staff</a>` : `<span class="muted small">Managers only, no staff sign-off needed</span>`}`
         : `<button class="btn tan" data-uack="${u.id}">${ICON.check}I acknowledge this update</button>`}
     </div>`)).join("")}</div>` : `<div class="panel empty"><h2 style="margin-bottom:6px">No open updates</h2>New recipe changes and announcements will appear here.</div>`}`;
+  $("#content").querySelectorAll("[data-seestaff]").forEach(b => b.onclick = () => { staffMode = "updates"; go("staff"); });
   $("#content").querySelectorAll("[data-uack]").forEach(b => b.onclick = async () => {
     b.disabled = true;
     const { error } = await sb.rpc("hb_store_ack_update", { p_token: token, p_update_id: +b.dataset.uack });
@@ -161,12 +193,14 @@ function renderUpdatesView() {
 function render() {
   const w = D.week;
   if (view === "updates") return renderUpdatesView();
+  if (view === "staff" && staffMode === "updates") return renderStaffUpdates();
   const nu = pendingUpdates().length;
   const updBanner = nu ? `<div class="panel row" style="justify-content:space-between;border-color:var(--amber)"><div class="row" style="gap:12px;flex-wrap:nowrap"><span class="upd-icon">${ICON.bell}</span><div><h2>${nu} new update${nu > 1 ? "s" : ""}</h2><div class="muted small">Please read and acknowledge.</div></div></div><button class="btn" id="toUpdates">Open updates</button></div>` : "";
   if (!w) {
     $("#content").innerHTML = `<div class="top"><div><h1>This week</h1><p>${esc(D.store.name)}</p></div><span class="live"><i></i>Live</span></div>
-      ${updBanner}<div class="panel empty"><h2 style="margin-bottom:6px">No hero products yet</h2>This page updates by itself when the admin publishes this week's heroes.</div>`;
+      ${view === "staff" ? staffSeg() : updBanner}<div class="panel empty"><h2 style="margin-bottom:6px">No hero products yet</h2>This page updates by itself when the admin publishes this week's heroes.</div>`;
     if ($("#toUpdates")) $("#toUpdates").onclick = () => go("updates");
+    bindStaffSeg();
     return;
   }
   const total = D.store.total_staff || 0, n = D.staff.length;
@@ -182,7 +216,8 @@ function render() {
       ${D.ack ? `<div class="panel row" style="justify-content:space-between"><div><h2>Next: brief your staff</h2><div class="muted small">${n} of ${total || "?"} staff have confirmed.</div></div><button class="btn" id="toStaff">Staff sign-off</button></div>` : ""}`;
   } else {
     $("#content").innerHTML = `
-      <div class="top"><div><h1>Staff sign-off</h1><p>${esc(w.title)}</p></div><span class="live"><i></i>Live</span></div>
+      <div class="top"><div><h1>Staff sign-off</h1><p>Hero products · ${esc(w.title)}</p></div><span class="live"><i></i>Live</span></div>
+      ${staffSeg()}
       ${!D.ack ? `<div class="panel empty"><h2 style="margin-bottom:6px">Acknowledge first</h2>Review this week's heroes and tap <b>I acknowledge</b>. Then you can share the link with your staff.<div style="margin-top:16px"><button class="btn" id="toHeroes">Go to this week's heroes</button></div></div>` : `
       <div class="kpis" style="grid-template-columns:repeat(2,minmax(0,1fr))">
         <div class="kpi"><div class="k-label"><span class="dot" style="background:var(--tan)"></span>Staff aware</div>
@@ -199,8 +234,8 @@ function render() {
           <div class="row"><a class="btn wa" id="waBtn" target="_blank" rel="noopener">${ICON.wa}Share on WhatsApp</a><button class="btn ghost" id="copyBtn">${ICON.copy}Copy link</button></div></div>
       </div>
       <div class="panel">
-        <div class="panel-head"><h2>Who has confirmed <span class="muted">(${n})</span></h2></div>
-        ${n ? `<ul class="list">${D.staff.map(s => `<li><span><b>${esc(s.staff_name)}</b> <span class="muted small mono">${esc(s.employee_id)}</span></span><span class="muted small">${fmtDateTime(s.acked_at)}</span></li>`).join("")}</ul>` : `<p class="empty">No staff have confirmed yet.</p>`}
+        <div class="panel-head"><h2>Who has confirmed this week's heroes <span class="muted">(${n})</span></h2></div>
+        ${staffListHTML(D.staff)}
       </div>`}`;
   }
 
@@ -214,6 +249,7 @@ function render() {
   if ($("#toStaff")) $("#toStaff").onclick = () => go("staff");
   if ($("#toUpdates")) $("#toUpdates").onclick = () => go("updates");
   if ($("#toHeroes")) $("#toHeroes").onclick = () => go("heroes");
+  bindStaffSeg();
   if ($("#waBtn")) {
     $("#waBtn").href = waStaffHref(`${w.title} – this week's heroes`);
     $("#copyBtn").onclick = () => navigator.clipboard.writeText(staffLink()).then(() => toast("Link copied"));
