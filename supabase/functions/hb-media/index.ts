@@ -1,7 +1,7 @@
 // Hero Board — confidential media in a private Cloudflare R2 bucket.
 // Hands out short-lived signed links:
-//   { action: "upload", week_id, ext, content_type }            admin only → PUT link (15 min)
-//   { action: "view", keys, store_token? | week_token+link_key? } admin, signed-in store, or staff link → GET links (1 h)
+//   { action: "upload", week_id | update_id, ext, page? }       admin only → PUT link (15 min)
+//   { action: "view", keys, store_token? | link_key? }            admin, signed-in store, or store staff link → GET links (1 h)
 //   { action: "delete", keys }                                    admin only
 //   { action: "status" }                                          admin only → is R2 configured / reachable
 // Secrets: R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET
@@ -10,7 +10,7 @@ import { AwsClient } from "npm:aws4fetch@1.0.20";
 
 const ALLOWED_ORIGINS = ["https://heroboard.hmreport.com", "https://shandrif.github.io", "http://localhost:8765"];
 const VIEW_SECONDS = 3600, UPLOAD_SECONDS = 900;
-const KEY_RE = /^w\d+\/[0-9a-f-]{36}(-p\d+)?\.(mp4|mov|webm|m4v|jpg)$/;
+const KEY_RE = /^[wu]\d+\/[0-9a-f-]{36}(-p\d+)?\.(mp4|mov|webm|m4v|jpg)$/;
 
 const env = (k: string) => Deno.env.get(k) || "";
 const db = createClient(env("SUPABASE_URL"), env("SUPABASE_SERVICE_ROLE_KEY"), { auth: { persistSession: false } });
@@ -64,10 +64,11 @@ Deno.serve(async (req) => {
         return json(req, { ok: res.ok, status: res.status });
       }
       if (action === "upload") {
-        const week = Number(body.week_id), ext = String(body.ext || "").toLowerCase();
-        if (!Number.isInteger(week) || week <= 0 || !/^(mp4|mov|webm|m4v|jpg)$/.test(ext)) return json(req, { error: "Bad upload request" }, 400);
+        const week = Number(body.week_id), upd = Number(body.update_id), ext = String(body.ext || "").toLowerCase();
+        const folder = Number.isInteger(upd) && upd > 0 ? `u${upd}` : Number.isInteger(week) && week > 0 ? `w${week}` : "";
+        if (!folder || !/^(mp4|mov|webm|m4v|jpg)$/.test(ext)) return json(req, { error: "Bad upload request" }, 400);
         const page = Number.isInteger(body.page) ? `-p${body.page}` : "";
-        const key = `w${week}/${crypto.randomUUID()}${page}.${ext}`;
+        const key = `${folder}/${crypto.randomUUID()}${page}.${ext}`;
         return json(req, { key, url: await signed(c, key, "PUT", UPLOAD_SECONDS) });
       }
       const keys = (Array.isArray(body.keys) ? body.keys : []).map(String).filter((k) => KEY_RE.test(k)).slice(0, 50);
@@ -82,7 +83,7 @@ Deno.serve(async (req) => {
       if (!(await isAdmin(req))) {
         const uuid = (v: unknown) => typeof v === "string" && /^[0-9a-f-]{36}$/i.test(v) ? v : null;
         const st = uuid(body.store_token), wt = uuid(body.week_token), lk = uuid(body.link_key);
-        if (!st && !(wt && lk)) return json(req, { error: "LINK_INVALID" }, 403);
+        if (!st && !lk) return json(req, { error: "LINK_INVALID" }, 403);
         const { data, error } = await db.rpc("hb_media_keys", { p_store_token: st, p_week_token: st ? null : wt, p_link_key: st ? null : lk });
         if (error) return json(req, { error: error.message.includes("SESSION_EXPIRED") ? "SESSION_EXPIRED" : "LINK_INVALID" }, 403);
         allowed = new Set((data?.keys || []) as string[]); store = data?.store || null;

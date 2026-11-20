@@ -29,8 +29,10 @@ const ratio = (a, b) => b > 0 ? a / b : null;
 const tc = s => !s ? "" : /[a-z]/.test(s) ? s : s.toLowerCase().replace(/\b[a-z]/g, c => c.toUpperCase());
 
 // ---------- metrics ----------
+let XL_MGR_ONLY = false;   // update reports where only store managers confirm
 function storeCompliance(r) {
   if (r.status === "Pending") return "Non-compliant";
+  if (XL_MGR_ONLY) return "Compliant";
   return r.total > 0 && r.staffN >= r.total ? "Compliant" : "Partial";
 }
 function summarize(rows) {
@@ -46,7 +48,7 @@ function summarize(rows) {
     compliant, partial: acked.length - compliant,
     ackRate, onTimeRate: ratio(onTime.length, n), staffRate,
     compliantRate: ratio(compliant, n),
-    score: n ? ((ackRate || 0) * 0.5 + (staffRate || 0) * 0.5) : null,
+    score: n ? (XL_MGR_ONLY ? (ackRate || 0) : (ackRate || 0) * 0.5 + (staffRate || 0) * 0.5) : null,
     medianHours: ackHours.length ? ackHours[Math.floor((ackHours.length - 1) / 2)] : null,
   };
 }
@@ -137,6 +139,7 @@ const PCT = "0%", INT = "#,##0", HRS = '0.0" h"', DT = "dd mmm yyyy, hh:mm AM/PM
 // ---------- report ----------
 async function buildWeekReport(ctx) {
   const ExcelJS = await loadExcelJS();
+  XL_MGR_ONLY = !!ctx.managersOnly;
   const { week: w, rows, scope } = ctx;
   const S0 = summarize(rows);
   const wb = new ExcelJS.Workbook();
@@ -150,7 +153,7 @@ async function buildWeekReport(ctx) {
   d.columns = [5, 24, 20, 12, 13, 12, 12, 13, 14, 12, 12, 16].map(width => ({ width }));
   banner(d, 12, `Hero Board · ${w.title} · Compliance Report`, sub);
   const sc = v => v == null ? XL.muted : v >= 0.85 ? XL.tealD : v >= 0.6 ? XL.amber : XL.red;
-  kpiTile(d, 4, 1, "COMPLIANCE SCORE", S0.score, "50% store acknowledgement + 50% staff coverage", sc(S0.score), PCT);
+  kpiTile(d, 4, 1, "COMPLIANCE SCORE", S0.score, XL_MGR_ONLY ? "store managers who acknowledged" : "50% store acknowledgement + 50% staff coverage", sc(S0.score), PCT);
   kpiTile(d, 4, 3, "STORES ACKNOWLEDGED", S0.ackRate, `${S0.acked} of ${S0.n} stores`, XL.tealD, PCT);
   kpiTile(d, 4, 5, "ON TIME (≤ 24 H)", S0.onTimeRate, `${S0.onTime} on time · ${S0.late} late`, S0.onTimeRate >= 0.85 ? XL.tealD : XL.amber, PCT);
   kpiTile(d, 4, 7, "NOT ACKNOWLEDGED", S0.pending, S0.pending ? "stores still pending" : "every store acknowledged", S0.pending ? XL.red : XL.tealD, INT);
@@ -183,11 +186,13 @@ async function buildWeekReport(ctx) {
     setCell(d, d.getCell(rr, 12).address, v ?? "—", { font: { size: 11, bold: true }, numFmt: f, fill: i % 2 ? XL.bg : XL.white, border: { bottom: thin(XL.line) }, align: { horizontal: "right", indent: 1 } });
   });
 
-  // Weekly trend
+  // Weekly trend (hero weeks only)
   r = 15;
+  let end = r - 2;
+  if (ctx.trend.length) {
   sectionTitle(d, r, 2, 12, "Weekly trend", "last published weeks, same scope");
   const trendRows = ctx.trend.map(t => ({ week: t.week.title, start: xlDay(t.week.start_date), ...summarize(t.rows) }));
-  let end = table(d, r + 1, 2, [
+  end = table(d, r + 1, 2, [
     { h: "Week", key: "week", bold: true }, { h: "Starts", key: "start", fmt: DAY }, { h: "Stores", key: "n", fmt: INT },
     { h: "Acknowledged", key: "ackRate", fmt: PCT, bar: XL.teal }, { h: "On time", key: "onTimeRate", fmt: PCT, bar: XL.teal },
     { h: "Staff coverage", key: "staffRate", fmt: PCT, bar: XL.tan }, { h: "Compliant stores", key: "compliant", fmt: INT },
@@ -200,6 +205,7 @@ async function buildWeekReport(ctx) {
     setCell(d, d.getCell(r + 2 + i, 10).address, delta == null ? "—" : `${delta >= 0 ? "▲" : "▼"} ${Math.abs(Math.round(delta * 100))} pts vs previous week`,
       { font: { size: 10, bold: delta != null, color: { argb: delta == null ? XL.muted : delta >= 0 ? XL.tealD : XL.red } }, fill: i % 2 ? XL.bg : XL.white, border: { bottom: thin(XL.line) } });
   });
+  }
 
   // Area manager leaderboard
   r = end + 2;
@@ -305,7 +311,22 @@ async function buildWeekReport(ctx) {
   end = table(s, 4, 1, sCols, staff.length ? staff.map((x, i) => ({ ...x, _i: i + 1 })) : [{ st: {}, staff_name: "No staff acknowledgements yet" }]);
   if (staff.length) s.autoFilter = { from: { row: 4, column: 1 }, to: { row: end, column: sCols.length } };
 
-  // ===== 7. Heroes =====
+  // ===== 7. Heroes (hero weeks) or Update details =====
+  if (ctx.update) {
+    const u = ctx.update, h = wb.addWorksheet("Update", sheetOpts(3));
+    h.columns = [{ width: 24 }, { width: 90 }];
+    banner(h, 2, `${u.title} · Update details`, sub);
+    const media = u.media || [], vids = media.filter(m => m.kind === "video"), pages = media.filter(m => m.kind === "page");
+    [["Title", u.title], ["Message", u.message || "—"], ["Published", fmtDateTime(u.published_at)], ["Open until", fmtDateTime(u.closes_at)],
+     ["Who receives it", ctx.scope], ["Who must confirm", u.require_staff ? "Store managers and all staff" : "Store managers only"],
+     ["Video", vids.length ? vids.map(v => v.name || "Video").join(", ") : "—"], ["Document", pages.length ? `${pages[0].name || "Document"} (${pages.length} page${pages.length > 1 ? "s" : ""})` : "—"],
+     ["Note", "Video and document files are confidential and are removed 7 days after upload."]]
+      .forEach(([k, v], i) => {
+        setCell(h, `A${4 + i}`, k, { font: { bold: true, size: 10 }, fill: i % 2 ? XL.bg : XL.white, align: { vertical: "top", indent: 1 } });
+        setCell(h, `B${4 + i}`, v, { font: { size: 10 }, fill: i % 2 ? XL.bg : XL.white, align: { wrapText: true, vertical: "top" } });
+      });
+    h.getRow(5).height = Math.min(300, 16 * Math.max(1, Math.ceil(String(u.message || "").length / 95) + (String(u.message || "").match(/\n/g) || []).length));
+  } else {
   const h = wb.addWorksheet("Heroes", sheetOpts(4));
   const hCols = [
     { h: "Daypart", get: x => x.slot ? slotLabel(x.slot).split(" · ")[0] : "—", bold: true, w: 12 }, { h: "Type", get: x => x.slot ? slotInfo(x.slot)[2] : "Hero product", w: 14 },
@@ -316,6 +337,7 @@ async function buildWeekReport(ctx) {
   banner(h, hCols.length, `${w.title} · Hero products`, sub);
   table(h, 4, 1, hCols, ctx.products.length ? ctx.products : [{ name: "No products" }]);
   ctx.products.forEach((p, i) => { if (p.photo_url) h.getCell(5 + i, 6).font = { name: XL_FONT, size: 10, color: { argb: XL.tealD }, underline: true }; });
+  }
 
   // ---- download ----
   const buf = await wb.xlsx.writeBuffer();

@@ -9,12 +9,12 @@
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#111111">
-<link rel="stylesheet" href="style.css?v=15">
+<link rel="stylesheet" href="style.css?v=16">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-<script src="config.js?v=15"></script>
-<script src="common.js?v=15"></script>
-<script src="export.js?v=15"></script>
+<script src="config.js?v=16"></script>
+<script src="common.js?v=16"></script>
+<script src="export.js?v=16"></script>
 </head>
 <body>
 <div id="splash" role="status" aria-label="Loading Hero Board">
@@ -99,6 +99,15 @@
       </div>
     </section>
 
+    <!-- UPDATES -->
+    <section id="tab-updates" class="hidden">
+      <div class="top"><div><h1>Updates</h1><p>Recipe changes, training videos and announcements. Separate from hero weeks.</p></div><button class="btn" id="newUpdBtn"></button></div>
+      <div class="weeks-layout">
+        <div id="updList"></div>
+        <div id="updEditor"></div>
+      </div>
+    </section>
+
     <!-- STORES -->
     <section id="tab-stores" class="hidden">
       <div class="top"><div><h1>Stores</h1><p>Store logins. Each store signs in with its Store ID and password.</p></div><button class="btn" id="dlLogins"></button></div>
@@ -151,7 +160,7 @@
 <div class="drawer" id="drawer"><div class="dh" id="drawerHead"></div><div class="db" id="drawerBody"></div></div>
 <div class="modal" id="modal"></div>
 
-<script src="motion.js?v=15"></script>
+<script src="motion.js?v=16"></script>
 <script>
 const S = { area: { area_manager: "", rom: "", region: "", city: "", group: "" }, weeks: [], stores: [], storeAcks: [], counts: {}, dashWeek: null, editWeek: null, products: [], sort: { key: "status", dir: 1 }, showPw: false, tab: "dash" };
 const BASE = location.href.replace(/[^/]*([?#].*)?$/, "");
@@ -189,13 +198,14 @@ function fillStatic() {
   $("#exportBtn").innerHTML = ICON.down + '<span class="hm">Export Excel</span>';
   $("#copyFollow").innerHTML = ICON.copy + "Copy for WhatsApp";
   $("#newWeekBtn").innerHTML = ICON.plus + "New hero week";
+  $("#newUpdBtn").innerHTML = ICON.plus + "New update";
   $("#dlLogins").innerHTML = ICON.down + "Download all logins";
   $("#storeTplBtn").innerHTML = ICON.down + "Download store template";
   $("#storeDrop").innerHTML = ICON.up + '<b>Upload store list</b><br><span class="note">Drop the Excel file here or tap to choose (.xlsx or .csv)</span>';
 }
 
 // ---------- navigation ----------
-const VIEWS = [["dash", "Dashboard", ICON.dash], ["weeks", "Hero Weeks", ICON.star], ["stores", "Stores", ICON.store]];
+const VIEWS = [["dash", "Dashboard", ICON.dash], ["weeks", "Hero Weeks", ICON.star], ["updates", "Updates", ICON.bell], ["stores", "Stores", ICON.store]];
 function renderNav() {
   const html = VIEWS.map(([k, label, icon]) => `<button data-tab="${k}" class="${k === S.tab ? "on" : ""}">${icon}<span>${label}</span></button>`).join("");
   $("#nav").querySelectorAll("button").forEach(b => b.remove());
@@ -206,7 +216,7 @@ function renderNav() {
 }
 function go(tab, quiet) {
   S.tab = tab; renderNav();
-  ["dash", "weeks", "stores"].forEach(t => $("#tab-" + t).classList.toggle("hidden", t !== S.tab));
+  ["dash", "weeks", "updates", "stores"].forEach(t => $("#tab-" + t).classList.toggle("hidden", t !== S.tab));
   $("#main").scrollTop = 0;
   render();
   if (!quiet) animateEnter($("#tab-" + tab));
@@ -259,6 +269,7 @@ async function refreshLive() {
     ]);
     (st.data || []).forEach(x => { const s = S.stores.find(y => y.id === x.id); if (s) s.total_staff = x.total_staff; });
     if (S.tab === "dash") renderDash(); else if (S.tab === "weeks") renderWeeks();
+    else if (S.tab === "updates" && typeof U !== "undefined" && U.loaded && !document.activeElement?.closest?.("#updEditor .panel:first-child")) { await loadUpdateAcks(U.list.filter(u => u.published).map(u => u.id)); renderUpdates(); }
   } catch {} finally { refreshing = false; }
 }
 async function staffList(weekId, storeId) {
@@ -276,6 +287,7 @@ function render() {
   if (S.tab === "dash") renderDash();
   if (S.tab === "weeks") renderWeeks();
   if (S.tab === "stores") renderStores();
+  if (S.tab === "updates" && typeof renderUpdates === "function") renderUpdates();
 }
 
 // ---------- dashboard ----------
@@ -621,65 +633,28 @@ function productModal(p, slot) {
     <div class="field"><label>Photo</label>
       <div class="row"><div class="pimg" style="width:110px;border-radius:10px" id="pmPrev">${p?.photo_url ? `<img src="${esc(p.photo_url)}">` : `<span>½M</span>`}</div>
       <input type="file" id="pmFile" accept="image/*" style="flex:1"></div></div>
-    <div class="field"><label>Confidential video and document <span class="muted small">(optional · private · removed automatically after 7 days)</span></label>
-      <div class="media-edit" id="pmMedia"></div>
-      <div class="grid2" style="margin-top:8px">
-        <div><label class="small muted" for="pmVideo">Video (MP4, up to 200 MB)</label><input type="file" id="pmVideo" accept="video/mp4,video/quicktime,video/webm,.mp4,.mov,.m4v,.webm"></div>
-        <div><label class="small muted" for="pmPdf">Document (PDF)</label><input type="file" id="pmPdf" accept="application/pdf,.pdf"></div>
-      </div></div>
+    <p class="muted small" style="margin:-4px 0 14px">Videos and documents (recipe changes, training) go in <b>Updates</b>.</p>
     <button class="btn block" id="pmSave">${p ? "Save" : slot ? "Add " + esc(slotInfo(slot)[2].toLowerCase()) : "Add product"}</button>`;
   $("#overlay").classList.add("show"); $("#modal").classList.add("show");
-  let file = null, video = null, pdf = null, media = [...(p?.media || [])];
-  const removed = [];
-  const drawMedia = () => {
-    const vids = media.filter(x => x.kind === "video"), pages = media.filter(x => x.kind === "page");
-    const rows = [
-      ...vids.map(x => `<div class="mi">${ICON.play}<span>${esc(x.name || "Video")} · ${(x.size / 1048576).toFixed(1)} MB</span><button class="icon-btn" data-rm="video" title="Remove video" aria-label="Remove video">${ICON.trash}</button></div>`),
-      ...(pages.length ? [`<div class="mi">${ICON.doc}<span>${esc(pages[0].name || "Document")} · ${pages.length} page${pages.length > 1 ? "s" : ""}</span><button class="icon-btn" data-rm="page" title="Remove document" aria-label="Remove document">${ICON.trash}</button></div>`] : []),
-      ...(video ? [`<div class="mi">${ICON.play}<span>New: ${esc(video.name)} · ${(video.size / 1048576).toFixed(1)} MB</span></div>`] : []),
-      ...(pdf ? [`<div class="mi">${ICON.doc}<span>New: ${esc(pdf.name)}</span></div>`] : []),
-    ];
-    $("#pmMedia").innerHTML = rows.join("") || `<span class="muted small">No video or document.</span>`;
-    $("#pmMedia").querySelectorAll("[data-rm]").forEach(b => b.onclick = () => { media = media.filter(x => { if (x.kind === b.dataset.rm) { removed.push(x.key); return false; } return true; }); drawMedia(); });
-  };
-  drawMedia();
+  let file = null;
   $("#pmFile").onchange = e => { file = e.target.files[0]; if (file) $("#pmPrev").innerHTML = `<img src="${URL.createObjectURL(file)}">`; };
-  $("#pmVideo").onchange = e => { video = e.target.files[0] || null; if (video && video.size > 200 * 1048576) { toast("Video is larger than 200 MB", "bad"); video = null; e.target.value = ""; } drawMedia(); };
-  $("#pmPdf").onchange = e => { pdf = e.target.files[0] || null; drawMedia(); };
   $("#pmSave").onclick = async () => {
     const name = $("#pmName").value.trim(); if (!name) return toast("Enter a product name", "bad");
     $("#pmSave").disabled = true; $("#pmSave").textContent = "Saving…";
     try {
       let photo_url = p?.photo_url || null;
       if (file) photo_url = await uploadPhoto(file, S.editWeek);
-      const say = m => ($("#pmSave").textContent = m);
-      if (video) {
-        removed.push(...media.filter(x => x.kind === "video").map(x => x.key)); media = media.filter(x => x.kind !== "video");
-        const ext = (video.name.split(".").pop() || "mp4").toLowerCase().replace("qt", "mov");
-        media.push({ kind: "video", key: await uploadMedia(video, S.editWeek, ["mp4", "mov", "webm", "m4v"].includes(ext) ? ext : "mp4", null, pct => say(`Uploading video… ${pct}%`)), type: video.type || "video/mp4", size: video.size, name: video.name });
-      }
-      if (pdf) {
-        say("Reading document…");
-        const pages = await pdfToImages(pdf);
-        removed.push(...media.filter(x => x.kind === "page").map(x => x.key)); media = media.filter(x => x.kind !== "page");
-        for (let i = 0; i < pages.length; i++) {
-          say(`Uploading page ${i + 1} of ${pages.length}…`);
-          media.push({ kind: "page", key: await uploadMedia(pages[i].blob, S.editWeek, "jpg", i + 1), page: i + 1, pages: pages.length, w: pages[i].w, h: pages[i].h, name: pdf.name });
-        }
-      }
-      say("Saving…");
-      const row = { name, description: $("#pmDesc").value.trim(), price: parsePrice($("#pmPrice").value), photo_url, media };
+      const row = { name, description: $("#pmDesc").value.trim(), price: parsePrice($("#pmPrice").value), photo_url };
       const { error } = p ? await sb.from("hb_products").update(row).eq("id", p.id) : await sb.from("hb_products").insert({ ...row, slot, week_id: S.editWeek, sort: slot ? SLOTS.findIndex(s => s[0] === slot) : S.products.length });
       if (error) throw error;
-      if (removed.length) mediaCall({ action: "delete", keys: removed }).catch(() => {});
       closeAll(); await loadProducts(); renderWeeks();
       if (S.editWeek === currentWeekId()) livePing(["hb-all"], "products");
     } catch (e) { toast(errMsg(e), "bad"); $("#pmSave").disabled = false; $("#pmSave").textContent = "Save"; }
   };
 }
 // Confidential media → private Cloudflare R2 via a short-lived upload link from the hb-media function
-async function uploadMedia(blob, weekId, ext, page, onProgress) {
-  const { key, url } = await mediaCall({ action: "upload", week_id: weekId, ext, ...(page ? { page } : {}) });
+async function uploadMedia(blob, folder, ext, page, onProgress) {
+  const { key, url } = await mediaCall({ action: "upload", ...(typeof folder === "object" ? folder : { week_id: folder }), ext, ...(page ? { page } : {}) });
   await new Promise((res, rej) => {
     const x = new XMLHttpRequest();
     x.open("PUT", url);
@@ -820,5 +795,6 @@ function parsePrice(v) { const n = parseFloat(String(v ?? "").replace(/[^0-9.]/g
 
 boot();
 </script>
+<script src="updates.js?v=16"></script>
 </body>
 </html>
