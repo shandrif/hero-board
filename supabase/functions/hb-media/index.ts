@@ -8,20 +8,21 @@
 import { createClient } from "npm:@supabase/supabase-js@2.45.4";
 import { AwsClient } from "npm:aws4fetch@1.0.20";
 
-const ALLOWED_ORIGINS = ["https://heroboard.hmreport.com", "https://shandrif.github.io", "http://localhost:8765"];
 const VIEW_SECONDS = 3600, UPLOAD_SECONDS = 900;
 const KEY_RE = /^[wu]\d+\/[0-9a-f-]{36}(-p\d+)?\.(mp4|mov|webm|m4v|jpg)$/;
 
 const env = (k: string) => Deno.env.get(k) || "";
 const db = createClient(env("SUPABASE_URL"), env("SUPABASE_SERVICE_ROLE_KEY"), { auth: { persistSession: false } });
 
+// Any page address may call this function: access is controlled by the admin login, store session or
+// staff link checked below, not by the page's address. Reflect whatever headers the browser asks to send.
 function cors(req: Request) {
-  const o = req.headers.get("origin") || "";
   return {
-    "Access-Control-Allow-Origin": ALLOWED_ORIGINS.includes(o) ? o : ALLOWED_ORIGINS[0],
-    "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+    "Access-Control-Allow-Origin": req.headers.get("origin") || "*",
+    "Access-Control-Allow-Headers": req.headers.get("access-control-request-headers") || "authorization, x-client-info, apikey, content-type",
     "Access-Control-Allow-Methods": "POST, OPTIONS",
-    "Vary": "Origin",
+    "Access-Control-Max-Age": "86400",
+    "Vary": "Origin, Access-Control-Request-Headers",
   };
 }
 const json = (req: Request, body: unknown, status = 200) =>
