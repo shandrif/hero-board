@@ -9,12 +9,12 @@
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#111111">
-<link rel="stylesheet" href="style.css?v=14">
+<link rel="stylesheet" href="style.css?v=15">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-<script src="config.js?v=14"></script>
-<script src="common.js?v=14"></script>
-<script src="export.js?v=14"></script>
+<script src="config.js?v=15"></script>
+<script src="common.js?v=15"></script>
+<script src="export.js?v=15"></script>
 </head>
 <body>
 <div id="splash" role="status" aria-label="Loading Hero Board">
@@ -151,10 +151,11 @@
 <div class="drawer" id="drawer"><div class="dh" id="drawerHead"></div><div class="db" id="drawerBody"></div></div>
 <div class="modal" id="modal"></div>
 
-<script src="motion.js?v=14"></script>
+<script src="motion.js?v=15"></script>
 <script>
 const S = { area: { area_manager: "", rom: "", region: "", city: "", group: "" }, weeks: [], stores: [], storeAcks: [], counts: {}, dashWeek: null, editWeek: null, products: [], sort: { key: "status", dir: 1 }, showPw: false, tab: "dash" };
 const BASE = location.href.replace(/[^/]*([?#].*)?$/, "");
+HB_MEDIA = { auth: {}, label: "Admin preview" };
 
 // ---------- auth ----------
 async function boot() {
@@ -482,7 +483,7 @@ function renderWeeks() {
   const adminCard = (p, tag) => `
         <article class="pcard">
           <div class="pimg">${p.photo_url ? `<img src="${esc(p.photo_url)}" alt="">` : `<span>½M</span>`}</div>
-          <div class="pbody">${tag ? `<div class="ptag">${esc(tag)}</div>` : ""}<h3>${esc(p.name)}</h3>${p.price != null ? `<div class="price">${fmtPrice(p.price)}</div>` : ""}${p.description ? `<p>${esc(p.description)}</p>` : ""}${!p.photo_url ? `<p class="small" style="color:var(--amber)">No photo yet</p>` : ""}</div>
+          <div class="pbody">${tag ? `<div class="ptag">${esc(tag)}</div>` : ""}<h3>${esc(p.name)}</h3>${p.price != null ? `<div class="price">${fmtPrice(p.price)}</div>` : ""}${p.description ? `<p>${esc(p.description)}</p>` : ""}${!p.photo_url ? `<p class="small" style="color:var(--amber)">No photo yet</p>` : ""}${mediaChips(p)}</div>
           <div class="pactions"><button class="btn ghost sm" data-edit="${p.id}">${ICON.edit}Edit</button><button class="icon-btn" title="Remove" aria-label="Remove" data-del="${p.id}">${ICON.trash}</button></div>
         </article>`;
   const productsHtml = dp
@@ -541,7 +542,9 @@ function renderWeeks() {
   };
   $("#delWeekBtn").onclick = async () => {
     if (!confirm(`Delete "${w.title}" with its products and all acknowledgements? This can't be undone.`)) return;
+    const gone = w.id === S.editWeek ? S.products.flatMap(x => (x.media || []).map(m => m.key)) : [];
     const { error } = await sb.from("hb_weeks").delete().eq("id", w.id);
+    if (!error && gone.length) mediaCall({ action: "delete", keys: gone }).catch(() => {});
     if (error) return toast(errMsg(error), "bad");
     S.editWeek = null; toast("Week deleted"); livePing(["hb-all"], "publish"); loadAll();
   };
@@ -576,7 +579,9 @@ function renderWeeks() {
   $("#weekEditor").querySelectorAll("[data-edit]").forEach(b => b.onclick = () => productModal(S.products.find(p => p.id === +b.dataset.edit)));
   $("#weekEditor").querySelectorAll("[data-del]").forEach(b => b.onclick = async () => {
     if (!confirm("Remove this product?")) return;
+    const gone = (S.products.find(x => x.id === +b.dataset.del)?.media || []).map(x => x.key);
     const { error } = await sb.from("hb_products").delete().eq("id", +b.dataset.del);
+    if (!error && gone.length) mediaCall({ action: "delete", keys: gone }).catch(() => {});
     if (error) return toast(errMsg(error), "bad");
     await loadProducts(); renderWeeks(); if (w.published && w.id === currentWeekId()) livePing(["hb-all"], "products");
   });
@@ -616,23 +621,94 @@ function productModal(p, slot) {
     <div class="field"><label>Photo</label>
       <div class="row"><div class="pimg" style="width:110px;border-radius:10px" id="pmPrev">${p?.photo_url ? `<img src="${esc(p.photo_url)}">` : `<span>½M</span>`}</div>
       <input type="file" id="pmFile" accept="image/*" style="flex:1"></div></div>
+    <div class="field"><label>Confidential video and document <span class="muted small">(optional · private · removed automatically after 7 days)</span></label>
+      <div class="media-edit" id="pmMedia"></div>
+      <div class="grid2" style="margin-top:8px">
+        <div><label class="small muted" for="pmVideo">Video (MP4, up to 200 MB)</label><input type="file" id="pmVideo" accept="video/mp4,video/quicktime,video/webm,.mp4,.mov,.m4v,.webm"></div>
+        <div><label class="small muted" for="pmPdf">Document (PDF)</label><input type="file" id="pmPdf" accept="application/pdf,.pdf"></div>
+      </div></div>
     <button class="btn block" id="pmSave">${p ? "Save" : slot ? "Add " + esc(slotInfo(slot)[2].toLowerCase()) : "Add product"}</button>`;
   $("#overlay").classList.add("show"); $("#modal").classList.add("show");
-  let file = null;
+  let file = null, video = null, pdf = null, media = [...(p?.media || [])];
+  const removed = [];
+  const drawMedia = () => {
+    const vids = media.filter(x => x.kind === "video"), pages = media.filter(x => x.kind === "page");
+    const rows = [
+      ...vids.map(x => `<div class="mi">${ICON.play}<span>${esc(x.name || "Video")} · ${(x.size / 1048576).toFixed(1)} MB</span><button class="icon-btn" data-rm="video" title="Remove video" aria-label="Remove video">${ICON.trash}</button></div>`),
+      ...(pages.length ? [`<div class="mi">${ICON.doc}<span>${esc(pages[0].name || "Document")} · ${pages.length} page${pages.length > 1 ? "s" : ""}</span><button class="icon-btn" data-rm="page" title="Remove document" aria-label="Remove document">${ICON.trash}</button></div>`] : []),
+      ...(video ? [`<div class="mi">${ICON.play}<span>New: ${esc(video.name)} · ${(video.size / 1048576).toFixed(1)} MB</span></div>`] : []),
+      ...(pdf ? [`<div class="mi">${ICON.doc}<span>New: ${esc(pdf.name)}</span></div>`] : []),
+    ];
+    $("#pmMedia").innerHTML = rows.join("") || `<span class="muted small">No video or document.</span>`;
+    $("#pmMedia").querySelectorAll("[data-rm]").forEach(b => b.onclick = () => { media = media.filter(x => { if (x.kind === b.dataset.rm) { removed.push(x.key); return false; } return true; }); drawMedia(); });
+  };
+  drawMedia();
   $("#pmFile").onchange = e => { file = e.target.files[0]; if (file) $("#pmPrev").innerHTML = `<img src="${URL.createObjectURL(file)}">`; };
+  $("#pmVideo").onchange = e => { video = e.target.files[0] || null; if (video && video.size > 200 * 1048576) { toast("Video is larger than 200 MB", "bad"); video = null; e.target.value = ""; } drawMedia(); };
+  $("#pmPdf").onchange = e => { pdf = e.target.files[0] || null; drawMedia(); };
   $("#pmSave").onclick = async () => {
     const name = $("#pmName").value.trim(); if (!name) return toast("Enter a product name", "bad");
     $("#pmSave").disabled = true; $("#pmSave").textContent = "Saving…";
     try {
       let photo_url = p?.photo_url || null;
       if (file) photo_url = await uploadPhoto(file, S.editWeek);
-      const row = { name, description: $("#pmDesc").value.trim(), price: parsePrice($("#pmPrice").value), photo_url };
+      const say = m => ($("#pmSave").textContent = m);
+      if (video) {
+        removed.push(...media.filter(x => x.kind === "video").map(x => x.key)); media = media.filter(x => x.kind !== "video");
+        const ext = (video.name.split(".").pop() || "mp4").toLowerCase().replace("qt", "mov");
+        media.push({ kind: "video", key: await uploadMedia(video, S.editWeek, ["mp4", "mov", "webm", "m4v"].includes(ext) ? ext : "mp4", null, pct => say(`Uploading video… ${pct}%`)), type: video.type || "video/mp4", size: video.size, name: video.name });
+      }
+      if (pdf) {
+        say("Reading document…");
+        const pages = await pdfToImages(pdf);
+        removed.push(...media.filter(x => x.kind === "page").map(x => x.key)); media = media.filter(x => x.kind !== "page");
+        for (let i = 0; i < pages.length; i++) {
+          say(`Uploading page ${i + 1} of ${pages.length}…`);
+          media.push({ kind: "page", key: await uploadMedia(pages[i].blob, S.editWeek, "jpg", i + 1), page: i + 1, pages: pages.length, w: pages[i].w, h: pages[i].h, name: pdf.name });
+        }
+      }
+      say("Saving…");
+      const row = { name, description: $("#pmDesc").value.trim(), price: parsePrice($("#pmPrice").value), photo_url, media };
       const { error } = p ? await sb.from("hb_products").update(row).eq("id", p.id) : await sb.from("hb_products").insert({ ...row, slot, week_id: S.editWeek, sort: slot ? SLOTS.findIndex(s => s[0] === slot) : S.products.length });
       if (error) throw error;
+      if (removed.length) mediaCall({ action: "delete", keys: removed }).catch(() => {});
       closeAll(); await loadProducts(); renderWeeks();
       if (S.editWeek === currentWeekId()) livePing(["hb-all"], "products");
     } catch (e) { toast(errMsg(e), "bad"); $("#pmSave").disabled = false; $("#pmSave").textContent = "Save"; }
   };
+}
+// Confidential media → private Cloudflare R2 via a short-lived upload link from the hb-media function
+async function uploadMedia(blob, weekId, ext, page, onProgress) {
+  const { key, url } = await mediaCall({ action: "upload", week_id: weekId, ext, ...(page ? { page } : {}) });
+  await new Promise((res, rej) => {
+    const x = new XMLHttpRequest();
+    x.open("PUT", url);
+    x.setRequestHeader("Content-Type", ext === "jpg" ? "image/jpeg" : blob.type || "video/mp4");
+    if (onProgress) x.upload.onprogress = e => e.lengthComputable && onProgress(Math.round(e.loaded / e.total * 100));
+    x.onload = () => x.status < 300 ? res() : rej(new Error(`Upload failed (${x.status})`));
+    x.onerror = () => rej(new Error("Upload failed. Check your connection, or that media storage is set up."));
+    x.send(blob);
+  });
+  return key;
+}
+function loadScript(src) { return new Promise((res, rej) => { const s = document.createElement("script"); s.src = src; s.onload = res; s.onerror = () => rej(new Error("Could not load " + src)); document.head.appendChild(s); }); }
+async function pdfToImages(file) {
+  if (!window.pdfjsLib) {
+    await loadScript("https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js");
+    pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+  }
+  const doc = await pdfjsLib.getDocument({ data: await file.arrayBuffer() }).promise;
+  if (doc.numPages > 20) throw new Error("The document has more than 20 pages");
+  const out = [];
+  for (let i = 1; i <= doc.numPages; i++) {
+    const page = await doc.getPage(i), v1 = page.getViewport({ scale: 1 });
+    const vp = page.getViewport({ scale: Math.min(3, 1600 / Math.max(v1.width, v1.height)) });
+    const c = document.createElement("canvas"); c.width = Math.round(vp.width); c.height = Math.round(vp.height);
+    const ctx = c.getContext("2d"); ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, c.width, c.height);
+    await page.render({ canvasContext: ctx, viewport: vp }).promise;
+    out.push({ blob: await new Promise(r => c.toBlob(r, "image/jpeg", 0.82)), w: c.width, h: c.height });
+  }
+  return out;
 }
 async function uploadPhoto(file, weekId) {
   const blob = await shrinkImage(file);

@@ -60,6 +60,64 @@ const DAYPARTS = [["morning", "Morning", "☀"], ["evening", "Evening", "☾"]];
 const SLOTS = [["am_drink", "morning", "Hero drink"], ["am_food", "morning", "Hero food"], ["pm_drink", "evening", "Hero drink"], ["pm_sweet", "evening", "Hero sweet"]];
 const slotInfo = s => SLOTS.find(x => x[0] === s);
 const slotLabel = s => { const x = slotInfo(s); return x ? `${DAYPARTS.find(d => d[0] === x[1])[1]} · ${x[2]}` : ""; };
+// ---------- confidential media (video / document pages in private Cloudflare R2) ----------
+// Each page sets HB_MEDIA = { auth: {store_token} | {week_token, link_key} | {}, label: "watermark text" }
+let HB_MEDIA = { auth: {}, label: "" };
+const HB_PRODUCTS = new Map();
+function mediaChips(p) {
+  const m = p.media || [];
+  if (!m.length) return "";
+  HB_PRODUCTS.set(p.id, p);
+  const v = m.some(x => x.kind === "video"), pages = m.filter(x => x.kind === "page").length;
+  return `<div class="media-row">
+    ${v ? `<button type="button" class="media-btn" data-media="${p.id}" data-kind="video">${ICON.play}Watch video</button>` : ""}
+    ${pages ? `<button type="button" class="media-btn" data-media="${p.id}" data-kind="page">${ICON.doc}Document${pages > 1 ? ` · ${pages} pages` : ""}</button>` : ""}
+    <span class="media-lock" title="Confidential: for staff only, do not share">${ICON.lock}Confidential</span></div>`;
+}
+async function mediaCall(body) {
+  const { data, error } = await sb.functions.invoke("hb-media", { body });
+  if (error) {
+    let msg = error.message;
+    try { const j = await error.context.json(); msg = j.error || msg; } catch {}
+    throw new Error(msg === "R2_NOT_CONFIGURED" ? "Media storage isn't set up yet." : msg === "SESSION_EXPIRED" ? "SESSION_EXPIRED" : msg === "LINK_INVALID" ? "LINK_INVALID" : msg);
+  }
+  return data;
+}
+function closeMedia() { const v = document.getElementById("mediaView"); if (v) { v.querySelectorAll("video").forEach(x => { x.pause(); x.removeAttribute("src"); x.load(); }); v.remove(); } document.body.classList.remove("media-open"); }
+async function openMedia(p, kind) {
+  closeMedia();
+  const items = (p.media || []).filter(x => x.kind === kind).sort((a, b) => (a.page || 0) - (b.page || 0));
+  if (!items.length) return;
+  const wm = esc(`${HB_MEDIA.label ? HB_MEDIA.label + " · " : ""}${new Date().toLocaleDateString("en-GB", { timeZone: TZ })} · Confidential`);
+  const box = document.createElement("div");
+  box.id = "mediaView"; box.className = "media-view"; box.setAttribute("role", "dialog"); box.setAttribute("aria-label", p.name);
+  box.innerHTML = `<div class="mv-head"><div><b>${esc(p.name)}</b><div class="mv-sub">${kind === "video" ? "Video" : "Document"} · Confidential, do not share</div></div><button class="mv-x" aria-label="Close">×</button></div>
+    <div class="mv-body"><p class="mv-msg">Loading…</p></div>`;
+  box.addEventListener("contextmenu", e => e.preventDefault());
+  box.querySelector(".mv-x").onclick = closeMedia;
+  document.body.appendChild(box); document.body.classList.add("media-open");
+  let urls = {};
+  try { urls = (await mediaCall({ action: "view", keys: items.map(x => x.key), ...HB_MEDIA.auth })).urls || {}; }
+  catch (e) { box.querySelector(".mv-body").innerHTML = `<p class="mv-msg">${esc(errMsg(e))}</p>`; return; }
+  if (!document.body.contains(box)) return;
+  const mark = `<div class="mv-wm" aria-hidden="true">${Array.from({ length: 14 }, () => `<span>${wm}</span>`).join("")}</div>`;
+  const gone = `<p class="mv-msg">This file is no longer available. Media is removed 7 days after upload.</p>`;
+  const body = box.querySelector(".mv-body");
+  if (kind === "video") {
+    const u = urls[items[0].key];
+    body.innerHTML = u ? `<div class="mv-frame"><video controls playsinline autoplay preload="metadata" controlslist="nodownload noremoteplayback noplaybackrate" disablepictureinpicture disableremoteplayback src="${esc(u)}"></video>${mark}</div>` : gone;
+    const v = body.querySelector("video"); if (v) v.onerror = () => (body.innerHTML = gone);
+  } else {
+    body.innerHTML = items.map(x => urls[x.key] ? `<div class="mv-frame mv-page"><img src="${esc(urls[x.key])}" alt="Page ${x.page || 1}" draggable="false">${mark}</div>` : "").join("") || gone;
+    body.querySelectorAll("img").forEach(img => img.onerror = () => img.closest(".mv-page").outerHTML = gone);
+  }
+}
+document.addEventListener("click", e => {
+  const b = e.target.closest && e.target.closest("[data-media]");
+  if (b) { e.preventDefault(); openMedia(HB_PRODUCTS.get(+b.dataset.media) || {}, b.dataset.kind); }
+});
+document.addEventListener("keydown", e => { if (e.key === "Escape" && document.getElementById("mediaView")) closeMedia(); });
+
 function productCard(p, tag) {
   return `
     <article class="pcard">
@@ -69,6 +127,7 @@ function productCard(p, tag) {
         <h3>${esc(p.name)}</h3>
         ${p.price != null ? `<div class="price">${fmtPrice(p.price)}</div>` : ""}
         ${p.description ? `<p>${esc(p.description)}</p>` : ""}
+        ${mediaChips(p)}
       </div>
     </article>`;
 }
