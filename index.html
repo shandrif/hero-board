@@ -11,10 +11,10 @@
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#111111">
 <meta name="apple-mobile-web-app-title" content="Hero Board">
-<link rel="stylesheet" href="style.css?v=20">
+<link rel="stylesheet" href="style.css?v=21">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
-<script src="config.js?v=20"></script>
-<script src="common.js?v=20"></script>
+<script src="config.js?v=21"></script>
+<script src="common.js?v=21"></script>
 </head>
 <body>
 <div id="splash" role="status" aria-label="Loading Hero Board">
@@ -54,7 +54,7 @@
   <div class="bottom-nav" id="bnav"></div>
 </div>
 
-<script src="motion.js?v=20"></script>
+<script src="motion.js?v=21"></script>
 <script>
 let token = storageGet("hb_store_token"), D = null, lastWeek = storageGet("hb_last_week"), view = "heroes";
 const BASE = location.href.replace(/[^/]*([?#].*)?$/, "");
@@ -103,7 +103,14 @@ async function load() {
   const { data, error } = await sb.rpc("hb_store_home", { p_token: token });
   if (error) {
     if (String(error.message).includes("SESSION_EXPIRED")) { storageSet("hb_store_token", null); token = null; showLogin("Please sign in again."); return false; }
-    if (!D) showLogin(errMsg(error)); else toast(errMsg(error), "bad");
+    if (!D) {   // still signed in, just couldn't load (weak connection): offer a retry instead of the sign-in screen
+      hideSplash();
+      $("#loginView").classList.add("hidden");
+      let box = $("#loadFail");
+      if (!box) { box = document.createElement("div"); box.id = "loadFail"; box.className = "panel empty"; box.style.cssText = "max-width:420px;margin:80px auto"; document.body.appendChild(box); }
+      box.innerHTML = `<h2 style="margin-bottom:6px">Couldn't load</h2>${esc(errMsg(error))}<div style="margin-top:14px"><button class="btn" id="loadRetry">Try again</button></div>`;
+      $("#loadRetry").onclick = () => location.reload();
+    } else toast(errMsg(error), "bad");
     return !!D;
   }
   const isNew = data.week && String(data.week.id) !== lastWeek;
@@ -112,8 +119,7 @@ async function load() {
   HB_MEDIA = { auth: { store_token: token }, label: `${D.store.name} · ${D.store.code}` };
   if (document.activeElement && document.activeElement.id === "totalIn") return true; // don't wipe what they're typing
   renderNav(); render();
-  if ((isNew && !data.ack) || (data.updates || []).some(u => !u.ack)) $("#newFlag").classList.add("show");
-  else if (data.ack) $("#newFlag").classList.remove("show");
+  $("#newFlag").classList.toggle("show", !!(data.week && !data.ack) || (data.updates || []).some(u => !u.ack));
   if (data.week) { lastWeek = String(data.week.id); storageSet("hb_last_week", lastWeek); }
   return true;
 }
@@ -126,7 +132,7 @@ function renderNav() {
   const html = VIEWS.map(([k, label, icon]) => `<button data-v="${k}" class="${k === view ? "on" : ""}">${icon}<span>${label}</span>${k === "heroes" && pending ? `<span class="badge">!</span>` : ""}${k === "updates" && nu ? `<span class="badge">${nu}</span>` : ""}</button>`).join("");
   $("#nav").querySelectorAll("button").forEach(b => b.remove());
   $("#nav").insertAdjacentHTML("beforeend", html);
-  $("#bnav").innerHTML = html.replace(/<span class="badge">!<\/span>/g, "").replace(/<span class="badge">(\d+)<\/span>/g, '<span class="badge-n">$1</span>');
+  $("#bnav").innerHTML = html.replace(/<span class="badge">!<\/span>/g, '<span class="badge-n">!</span>').replace(/<span class="badge">(\d+)<\/span>/g, '<span class="badge-n">$1</span>');
   document.querySelectorAll("#nav button, #bnav button").forEach(b => b.onclick = () => go(b.dataset.v));
   slideIndicator($("#nav"), "nav");
 }
@@ -169,7 +175,7 @@ function renderStaffUpdates() {
       </div>`;
     }).join("") : `<div class="panel empty"><h2 style="margin-bottom:6px">No open updates</h2>When a new update needs your staff's confirmation, it appears here.</div>`}`;
   bindStaffSeg();
-  $("#content").querySelectorAll("[data-copy]").forEach(b => b.onclick = () => navigator.clipboard.writeText(staffLink("updates")).then(() => toast("Link copied")));
+  $("#content").querySelectorAll("[data-copy]").forEach(b => b.onclick = () => copyText(staffLink("updates")));
   $("#content").querySelectorAll("[data-goupd]").forEach(b => b.onclick = () => go("updates"));
 }
 function renderUpdatesView() {
@@ -183,9 +189,12 @@ function renderUpdatesView() {
   $("#content").querySelectorAll("[data-seestaff]").forEach(b => b.onclick = () => { staffMode = "updates"; go("staff"); });
   $("#content").querySelectorAll("[data-uack]").forEach(b => b.onclick = async () => {
     b.disabled = true;
-    const { error } = await sb.rpc("hb_store_ack_update", { p_token: token, p_update_id: +b.dataset.uack });
-    if (error) { b.disabled = false; return toast(errMsg(error), "bad"); }
-    toast("Thank you! Now share it with your staff."); livePing(["hb-admin"], "update-ack"); await load();
+    const id = +b.dataset.uack, u = (D.updates || []).find(x => x.id === id);
+    const { data: at, error } = await sb.rpc("hb_store_ack_update", { p_token: token, p_update_id: id });
+    if (error) { toast(errMsg(error), "bad"); return load(); }
+    if (u) u.ack = at || new Date().toISOString();   // show it straight away even if the refresh below is slow
+    toast(u && !u.require_staff ? "Thank you! This update is acknowledged." : "Thank you! Now share it with your staff.");
+    livePing(["hb-admin"], "update-ack"); if (!(await load())) render();
   });
 }
 
@@ -241,18 +250,19 @@ function render() {
 
   if ($("#ackBtn")) $("#ackBtn").onclick = async () => {
     $("#ackBtn").disabled = true;
-    const { error } = await sb.rpc("hb_store_ack", { p_token: token, p_week_id: w.id });
-    if (error) { $("#ackBtn").disabled = false; return toast(errMsg(error), "bad"); }
-    $("#newFlag").classList.remove("show"); toast("Thank you! Now share the link with your staff.");
-    livePing(["hb-admin"], "ack"); await load(); go("staff");
+    const { data: at, error } = await sb.rpc("hb_store_ack", { p_token: token, p_week_id: w.id });
+    if (error) { toast(errMsg(error), "bad"); return load(); }
+    D.ack = at || new Date().toISOString();
+    toast("Thank you! Now share the link with your staff.");
+    livePing(["hb-admin"], "ack"); await load(); staffMode = "heroes"; go("staff");
   };
-  if ($("#toStaff")) $("#toStaff").onclick = () => go("staff");
+  if ($("#toStaff")) $("#toStaff").onclick = () => { staffMode = "heroes"; go("staff"); };
   if ($("#toUpdates")) $("#toUpdates").onclick = () => go("updates");
   if ($("#toHeroes")) $("#toHeroes").onclick = () => go("heroes");
   bindStaffSeg();
   if ($("#waBtn")) {
     $("#waBtn").href = waStaffHref(`${w.title} – this week's heroes`, "heroes");
-    $("#copyBtn").onclick = () => navigator.clipboard.writeText(staffLink("heroes")).then(() => toast("Link copied"));
+    $("#copyBtn").onclick = () => copyText(staffLink("heroes"));
     $("#saveTotal").onclick = async () => {
       const v = parseInt($("#totalIn").value || "0", 10);
       $("#totalIn").blur();

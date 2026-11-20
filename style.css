@@ -422,3 +422,9 @@ label.check input{width:18px;height:18px;flex:none;accent-color:var(--ink)}
 .seg button{border:0;background:transparent;font:inherit;font-size:13px;font-weight:700;color:var(--muted);padding:7px 14px;border-radius:9px;cursor:pointer;transition:background 150ms var(--ease-out),color 150ms var(--ease-out)}
 .seg button.on{background:var(--ink);color:#fff}
 .seg button:not(.on):hover{color:var(--ink)}
+
+/* ---- long titles must wrap, never widen the page on phones ---- */
+.weeks-layout > *{min-width:0}
+.week-item .wt{min-width:0;overflow-wrap:anywhere}
+.week-item .chip{flex:none}
+.panel-head > *, .panel-head h2, .row > h2, .top h1, .upd-top h3{min-width:0;overflow-wrap:anywhere}

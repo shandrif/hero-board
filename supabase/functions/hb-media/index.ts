@@ -68,18 +68,19 @@ Deno.serve(async (req) => {
         const week = Number(body.week_id), upd = Number(body.update_id), ext = String(body.ext || "").toLowerCase();
         const folder = Number.isInteger(upd) && upd > 0 ? `u${upd}` : Number.isInteger(week) && week > 0 ? `w${week}` : "";
         if (!folder || !/^(mp4|mov|webm|m4v|jpg)$/.test(ext)) return json(req, { error: "Bad upload request" }, 400);
-        const page = Number.isInteger(body.page) ? `-p${body.page}` : "";
+        const pg = Number(body.page);
+        const page = Number.isInteger(pg) && pg >= 1 && pg <= 999 ? `-p${pg}` : "";
         const key = `${folder}/${crypto.randomUUID()}${page}.${ext}`;
         return json(req, { key, url: await signed(c, key, "PUT", UPLOAD_SECONDS) });
       }
-      const keys = (Array.isArray(body.keys) ? body.keys : []).map(String).filter((k) => KEY_RE.test(k)).slice(0, 50);
+      const keys = (Array.isArray(body.keys) ? body.keys.slice(0, 50) : []).map(String).filter((k) => KEY_RE.test(k)).slice(0, 50);
       const results = await Promise.all(keys.map(async (k) => (await c.aws.fetch(c.base + k, { method: "DELETE" })).ok));
       return json(req, { deleted: results.filter(Boolean).length });
     }
 
     if (action === "view") {
       if (!c) return json(req, { error: "R2_NOT_CONFIGURED" }, 503);
-      const keys = (Array.isArray(body.keys) ? body.keys : []).map(String).filter((k) => KEY_RE.test(k)).slice(0, 50);
+      const keys = (Array.isArray(body.keys) ? body.keys.slice(0, 50) : []).map(String).filter((k) => KEY_RE.test(k)).slice(0, 50);
       let allowed: Set<string> | null = null, store = null;
       if (!(await isAdmin(req))) {
         const uuid = (v: unknown) => typeof v === "string" && /^[0-9a-f-]{36}$/i.test(v) ? v : null;
@@ -95,6 +96,7 @@ Deno.serve(async (req) => {
     }
     return json(req, { error: "Unknown action" }, 400);
   } catch (e) {
-    return json(req, { error: String((e as Error)?.message || e) }, 500);
+    console.error(e);
+    return json(req, { error: "Something went wrong. Please try again." }, 500);
   }
 });

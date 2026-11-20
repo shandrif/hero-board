@@ -3,29 +3,45 @@
 
 const UPD_TARGETS = [["all", "All stores"], ["region", "Regions"], ["city", "Cities"], ["area_manager", "Area managers"], ["rom", "ROMs"], ["stores", "Specific stores"]];
 const UPD_OPEN_DAYS = 7;
-const U = { list: [], sel: null, acks: {}, counts: {}, loaded: false, q: "", f: "all", am: "" };
+const U = { list: [], sel: null, acks: {}, counts: {}, loaded: false, loading: null, failed: false, saving: false, editorFor: null };
 
-async function loadUpdates() {
-  const { data: s } = await sb.auth.getSession();
-  if (!s.session) { adminSignedOut(); return; }
-  const { data, error } = await sb.from("hb_updates").select("*").order("created_at", { ascending: false });
-  if (error) { toast(errMsg(error), "bad"); return; }
-  U.list = data || [];
-  U.loaded = true;
-  if (U.sel && !U.list.some(u => u.id === U.sel)) U.sel = null;
-  if (!U.sel) U.sel = U.list[0]?.id || null;
-  await loadUpdateAcks(U.list.filter(u => u.published).map(u => u.id));
+// Loads the update list once; concurrent callers share the same request. Returns true on success.
+function loadUpdates() {
+  if (U.loading) return U.loading;
+  U.loading = (async () => {
+    try {
+      const { data: s } = await sb.auth.getSession();
+      if (!s.session) { adminSignedOut(); throw new Error("You've been signed out. Please sign in again."); }
+      const { data, error } = await sb.from("hb_updates").select("*").order("created_at", { ascending: false });
+      if (error) throw error;
+      U.list = data || [];
+      if (U.sel && !U.list.some(u => u.id === U.sel)) U.sel = null;
+      if (!U.sel) U.sel = U.list[0]?.id || null;
+      await loadUpdateAcks(ackIdsToLoad());
+      U.loaded = true; U.failed = false;
+      return true;
+    } catch (e) { U.failed = errMsg(e); return false; }
+    finally { U.loading = null; }
+  })();
+  return U.loading;
+}
+// Acknowledgements for the 10 most recent published updates plus whatever is selected (dashboard / editor).
+function ackIdsToLoad() {
+  const pub = U.list.filter(u => u.published).sort((a, b) => new Date(b.published_at) - new Date(a.published_at));
+  return [...new Set([...pub.slice(0, 10).map(u => u.id), ...[U.sel, S.dashUpd].filter(id => pub.some(u => u.id === id))])];
 }
 async function loadUpdateAcks(ids) {
   if (!ids.length) return;
+  // paged: Supabase returns at most 1000 rows per request
   const [a, c] = await Promise.all([
-    sb.from("hb_update_store_acks").select("update_id,store_id,acked_at").in("update_id", ids),
-    sb.rpc("hb_admin_update_counts", { p_update_ids: ids }),
-  ]);
+    fetchAll(() => sb.from("hb_update_store_acks").select("update_id,store_id,acked_at").in("update_id", ids).order("update_id").order("store_id")),
+    fetchAll(() => sb.rpc("hb_admin_update_counts", { p_update_ids: ids })),
+  ]);   // fetchAll throws on error, so a failed refresh keeps the previous numbers instead of showing 0
   ids.forEach(id => { U.acks[id] = {}; U.counts[id] = {}; });
-  (a.data || []).forEach(x => (U.acks[x.update_id][x.store_id] = x.acked_at));
-  (c.data || []).forEach(x => (U.counts[x.update_id][x.store_id] = x.n));
+  a.forEach(x => (U.acks[x.update_id][x.store_id] = x.acked_at));
+  c.forEach(x => (U.counts[x.update_id][x.store_id] = x.n));
 }
+const updAcksKnown = u => !u.published || !!U.acks[u.id];
 
 const updState = u => !u.published ? "draft" : new Date(u.closes_at) > new Date() ? "live" : "closed";
 function updChip(u) {
@@ -62,10 +78,17 @@ function renderUpdateList() {
     const rows = u.published ? updRows(u) : [], acked = rows.filter(r => r.ack).length;
     return `<button class="week-item ${u.id === U.sel ? "on" : ""}" data-u="${u.id}">
       <div class="row" style="justify-content:space-between;flex-wrap:nowrap;gap:8px"><span class="wt">${esc(u.title)}</span>${updChip(u)}</div>
-      <div class="muted small">${u.published ? `${fmtDate((u.published_at || "").slice(0, 10))} · ${acked}/${rows.length} stores acknowledged` : "Not published yet"}</div>
+      <div class="muted small">${u.published ? `${fmtDate(dayInRiyadh(u.published_at))}${updAcksKnown(u) ? ` · ${acked}/${rows.length} stores acknowledged` : ""}` : "Not published yet"}</div>
     </button>`;
   }).join("") : `<p class="muted small">No updates yet.</p>`;
-  $("#updList").querySelectorAll("[data-u]").forEach(b => b.onclick = () => { U.sel = +b.dataset.u; renderUpdates(); });
+  $("#updList").querySelectorAll("[data-u]").forEach(b => b.onclick = async () => {
+    if (U.saving) return toast("Please wait until the current save finishes", "bad");
+    const id = +b.dataset.u; if (id === U.sel) return;
+    U.sel = id;
+    if (!U.acks[id] && U.list.find(u => u.id === id)?.published) { try { await loadUpdateAcks([id]); } catch {} }
+    renderUpdates(true);
+    if (window.innerWidth < 900) $("#updEditor").scrollIntoView({ behavior: "smooth", block: "start" });
+  });
 }
 // Live refresh: only the list and the progress panel, never the edit form (keeps typed text and chosen files)
 function refreshUpdateProgress() {
@@ -74,10 +97,23 @@ function refreshUpdateProgress() {
   const u = U.list.find(x => x.id === U.sel), box = $("#updProgress");
   if (u && u.published && box) { box.innerHTML = updProgressHTML(u); bindUpdProgress(u); }
 }
-function renderUpdates() {
-  if (!U.loaded) { $("#updList").innerHTML = `<p class="muted small">Loading…</p>`; loadUpdates().then(renderUpdates); return; }
+// force = rebuild the edit form even if it already shows this update (otherwise typed text and chosen files are kept)
+function renderUpdates(force) {
+  if (!U.loaded) {
+    if (U.failed) {
+      $("#updList").innerHTML = "";
+      $("#updEditor").innerHTML = `<div class="panel empty"><h2 style="margin-bottom:6px">Couldn't load updates</h2>${esc(U.failed)}<div style="margin-top:14px"><button class="btn" id="updRetry">Try again</button></div></div>`;
+      $("#updRetry").onclick = () => { U.failed = false; renderUpdates(true); };
+      return;
+    }
+    $("#updList").innerHTML = `<p class="muted small">Loading…</p>`;
+    loadUpdates().then(() => renderUpdates(true));
+    return;
+  }
   renderUpdateList();
   const u = U.list.find(x => x.id === U.sel);
+  if (!force && u && U.editorFor === u.id && $("#uTitle")) { refreshUpdateProgress(); return; }
+  U.editorFor = u ? u.id : null;
   if (!u) { $("#updEditor").innerHTML = `<div class="panel empty"><h2 style="margin-bottom:6px">No updates yet</h2>Use <b>New update</b> to share a recipe change, training video or announcement with stores. It's separate from hero weeks.</div>`; return; }
   const st = updState(u);
   $("#updEditor").innerHTML = `
@@ -115,25 +151,27 @@ function renderUpdates() {
 
   $("#uSave").onclick = () => saveUpdate(u);
   if ($("#uPub")) $("#uPub").onclick = async () => {
-    if (!(await saveUpdate(u, true))) return;
+    if (U.saving) return;
+    $("#uPub").disabled = true;
+    if (!(await saveUpdate(u, true))) { if ($("#uPub")) $("#uPub").disabled = false; return; }
     const fresh = U.list.find(x => x.id === u.id), n = S.stores.filter(s => updTargetsStore(fresh, s)).length;
     if (!n) return toast("No stores match who receives it", "bad");
     if (!confirm(`Publish "${fresh.title}" to ${n} store${n === 1 ? "" : "s"}? It stays open for ${UPD_OPEN_DAYS} days.`)) return;
     const now = new Date();
     try { await mustChange(sb.from("hb_updates").update({ published: true, published_at: now.toISOString(), closes_at: new Date(+now + UPD_OPEN_DAYS * 864e5).toISOString() }).eq("id", u.id), "publish"); }
     catch (e) { return toast(errMsg(e), "bad"); }
-    toast("Published. Stores can see it now."); livePing(["hb-all"], "update"); await loadUpdates(); renderUpdates();
+    toast("Published. Stores can see it now."); livePing(["hb-all"], "update"); await loadUpdates(); renderUpdates(true);
   };
   if ($("#uClose")) $("#uClose").onclick = async () => {
     if (!confirm("Close this update now? Stores will stop seeing it. Acknowledgements are kept.")) return;
     try { await mustChange(sb.from("hb_updates").update({ closes_at: new Date().toISOString() }).eq("id", u.id), "close it"); }
     catch (e) { return toast(errMsg(e), "bad"); }
-    toast("Closed"); livePing(["hb-all"], "update"); await loadUpdates(); renderUpdates();
+    toast("Closed"); livePing(["hb-all"], "update"); await loadUpdates(); renderUpdates(true);
   };
   if ($("#uReopen")) $("#uReopen").onclick = async () => {
     try { await mustChange(sb.from("hb_updates").update({ closes_at: new Date(Date.now() + UPD_OPEN_DAYS * 864e5).toISOString() }).eq("id", u.id), "reopen it"); }
     catch (e) { return toast(errMsg(e), "bad"); }
-    toast(`Open again for ${UPD_OPEN_DAYS} days. Video and document files may already have been removed.`); livePing(["hb-all"], "update"); await loadUpdates(); renderUpdates();
+    toast(`Open again for ${UPD_OPEN_DAYS} days. Video and document files may already have been removed.`); livePing(["hb-all"], "update"); await loadUpdates(); renderUpdates(true);
   };
   $("#uDel").onclick = async () => {
     if (!confirm(`Delete "${u.title}" with its acknowledgements? This can't be undone.`)) return;
@@ -141,7 +179,7 @@ function renderUpdates() {
     try { await mustChange(sb.from("hb_updates").delete().eq("id", u.id), "delete it"); }
     catch (e) { return toast(errMsg(e), "bad"); }
     if (keys.length) mediaCall({ action: "delete", keys }).catch(() => {});
-    U.sel = null; toast("Update deleted"); livePing(["hb-all"], "update"); await loadUpdates(); renderUpdates();
+    U.sel = null; toast("Update deleted"); livePing(["hb-all"], "update"); await loadUpdates(); renderUpdates(true);
   };
 }
 
@@ -187,40 +225,43 @@ function updMediaUI(u) {
 }
 
 async function saveUpdate(u, quiet) {
+  if (U.saving) { toast("Already saving, please wait", "bad"); return false; }
+  // Read everything from the form NOW: uploads can take minutes and the screen may change meanwhile.
   const title = $("#uTitle").value.trim(); if (!title) { toast("Enter a title", "bad"); return false; }
-  const btn = $("#uSave"), box = $("#uMedia"), say = t => (btn.textContent = t);
-  btn.disabled = true;
+  const message = $("#uMsg").value.trim(), kind = $("#uKind").value, requireStaff = $("#uStaff").checked;
+  const values = kind === "all" ? [] : [...($("#uTList")?.querySelectorAll("input:checked") || [])].map(i => i.value);
+  if (!u.published && kind !== "all" && !values.length) { toast("Choose at least one under “Who receives it”", "bad"); return false; }
+  const btn = $("#uSave"), box = $("#uMedia"), video = box._video, pdf = box._pdf;
+  const say = t => { if (document.body.contains(btn)) btn.textContent = t; };
+  U.saving = true; btn.disabled = true;
   try {
     let media = [...box._media]; const removed = [...box._removed];
-    if (box._video) {
+    if (video) {
       removed.push(...media.filter(x => x.kind === "video").map(x => x.key)); media = media.filter(x => x.kind !== "video");
-      const v = box._video, ext = (v.name.split(".").pop() || "mp4").toLowerCase();
+      const v = video, ext = (v.name.split(".").pop() || "mp4").toLowerCase();
       media.push({ kind: "video", key: await uploadMedia(v, { update_id: u.id }, ["mp4", "mov", "webm", "m4v"].includes(ext) ? ext : "mp4", null, p => say(`Uploading video… ${p}%`)), type: v.type || "video/mp4", size: v.size, name: v.name });
     }
-    if (box._pdf) {
+    if (pdf) {
       say("Reading document…");
-      const pages = await pdfToImages(box._pdf);
+      const pages = await pdfToImages(pdf);
       removed.push(...media.filter(x => x.kind === "page").map(x => x.key)); media = media.filter(x => x.kind !== "page");
       for (let i = 0; i < pages.length; i++) {
         say(`Uploading page ${i + 1} of ${pages.length}…`);
-        media.push({ kind: "page", key: await uploadMedia(pages[i].blob, { update_id: u.id }, "jpg", i + 1), page: i + 1, pages: pages.length, w: pages[i].w, h: pages[i].h, name: box._pdf.name });
+        media.push({ kind: "page", key: await uploadMedia(pages[i].blob, { update_id: u.id }, "jpg", i + 1), page: i + 1, pages: pages.length, w: pages[i].w, h: pages[i].h, name: pdf.name });
       }
     }
     say("Saving…");
-    const row = { title, message: $("#uMsg").value.trim(), media };
-    if (!u.published) {
-      row.target_kind = $("#uKind").value; row.require_staff = $("#uStaff").checked;
-      row.target_values = row.target_kind === "all" ? [] : [...$("#uTList").querySelectorAll("input:checked")].map(i => i.value);
-      if (row.target_kind !== "all" && !row.target_values.length) throw new Error("Choose at least one under “Who receives it”");
-    }
+    const row = { title, message, media };
+    if (!u.published) { row.target_kind = kind; row.require_staff = requireStaff; row.target_values = values; }
     await mustChange(sb.from("hb_updates").update(row).eq("id", u.id), "save");
     if (removed.length) mediaCall({ action: "delete", keys: removed }).catch(() => {});
     if (!quiet) toast("Saved");
     if (u.published) livePing(["hb-all"], "update");
-    await loadUpdates(); renderUpdates();
+    U.saving = false;
+    await loadUpdates(); if (U.sel === u.id) renderUpdates(true); else renderUpdateList();
     return true;
   } catch (e) { toast(errMsg(e), "bad"); return false; }
-  finally { if (document.body.contains(btn)) { btn.disabled = false; btn.textContent = "Save changes"; } }
+  finally { U.saving = false; if (document.body.contains(btn)) { btn.disabled = false; btn.textContent = "Save changes"; } }
 }
 
 $("#newUpdBtn").onclick = () => {
@@ -232,9 +273,10 @@ $("#newUpdBtn").onclick = () => {
   $("#overlay").classList.add("show"); $("#modal").classList.add("show"); $("#nuTitle").focus();
   $("#nuSave").onclick = async () => {
     const title = $("#nuTitle").value.trim(); if (!title) return toast("Enter a title", "bad");
+    const b = $("#nuSave"); if (b.disabled) return; b.disabled = true; b.textContent = "Creating…";
     const { data, error } = await sb.from("hb_updates").insert({ title }).select().single();
-    if (error) { if (error.code === "42501" || /row-level security|JWT/i.test(error.message || "")) adminSignedOut(); return toast(error.code === "42501" ? "You've been signed out. Please sign in again." : errMsg(error), "bad"); }
-    closeAll(); U.sel = data.id; await loadUpdates(); renderUpdates();
+    if (error) { b.disabled = false; b.textContent = "Create update"; if (error.code === "42501" || /row-level security|JWT/i.test(error.message || "")) adminSignedOut(); return toast(error.code === "42501" ? "You've been signed out. Please sign in again." : errMsg(error), "bad"); }
+    closeAll(); U.sel = data.id; await loadUpdates(); renderUpdates(true);
   };
 };
 
@@ -256,15 +298,17 @@ function bindUpdProgress(u) {
 }
 // Excel report for an update: same format as hero weeks, follows the Dashboard's area filters
 async function exportUpdateReport(u) {
-  const { data: staff, error } = await sb.from("hb_update_staff_acks").select("store_id,employee_id,staff_name,acked_at").eq("update_id", u.id).order("acked_at").limit(10000);
-  if (error) throw error;
+  const staff = await fetchAll(() => sb.from("hb_update_staff_acks").select("store_id,employee_id,staff_name,acked_at").eq("update_id", u.id).order("acked_at").order("id"));
   const rows = updRows(u).filter(inArea);
   const parts = AREA.filter(([k]) => S.area[k]).map(([k, , l]) => `${l}: ${S.area[k] === NONE ? "not set" : titleCase(S.area[k])}`);
   await buildWeekReport({
-    week: { title: u.title, start_date: u.published_at.slice(0, 10), end_date: u.closes_at.slice(0, 10), published_at: u.published_at },
+    week: { title: u.title, start_date: dayInRiyadh(u.published_at), end_date: dayInRiyadh(u.closes_at), published_at: u.published_at },
     rows, staff: staff || [], products: [], trend: [], update: u, managersOnly: !u.require_staff,
     scope: `${parts.length ? parts.join(" · ") + " · " : ""}${updAudienceText(u)} (${rows.length} stores)`,
     scopeShort: AREA.filter(([k]) => S.area[k] && S.area[k] !== NONE).map(([k]) => titleCase(S.area[k])).join(", "),
   });
   toast("Report downloaded");
 }
+
+// "2026-11-20" for a timestamp, in Riyadh time (not UTC)
+function dayInRiyadh(ts) { return ts ? new Date(ts).toLocaleDateString("en-CA", { timeZone: TZ }) : ""; }
