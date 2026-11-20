@@ -238,68 +238,33 @@ $("#newUpdBtn").onclick = () => {
   };
 };
 
-// ---------- progress (published updates) ----------
+// ---------- progress summary (full tracking lives in Dashboard → Updates) ----------
 function updProgressHTML(u) {
-  const rows = updRows(u), N = rows.length, acked = rows.filter(r => r.ack).length, onTime = rows.filter(r => r.status === "On time").length;
+  const rows = updRows(u), N = rows.length, acked = rows.filter(r => r.ack).length;
   const wt = rows.filter(r => r.total > 0), aware = wt.reduce((a, r) => a + Math.min(r.staffN, r.total), 0), total = wt.reduce((a, r) => a + r.total, 0);
-  const ams = [...new Set(rows.map(r => r.area_manager).filter(Boolean))].sort();
-  return `
-    <div class="kpis" style="grid-template-columns:repeat(${u.require_staff ? 3 : 2},minmax(0,1fr))">
-      <div class="kpi"><div class="k-label"><span class="dot" style="background:var(--teal)"></span>Managers acknowledged</div><div class="k-value">${acked}<small> / ${N}</small></div>
-        <div class="meter"><i style="width:${pct(acked, N)}%"></i></div><div class="k-foot">${pct(acked, N)}% · ${onTime} within 24 h</div></div>
-      ${u.require_staff ? `<div class="kpi"><div class="k-label"><span class="dot" style="background:var(--tan)"></span>Staff aware</div><div class="k-value">${aware}<small> / ${total || "—"}</small></div>
-        <div class="meter tan"><i style="width:${pct(aware, total)}%"></i></div><div class="k-foot">${total ? pct(aware, total) + "% of staff" : "Stores haven't set staff count"}</div></div>` : ""}
-      <div class="kpi"><div class="k-label"><span class="dot" style="background:var(--red)"></span>Not acknowledged</div><div class="k-value" style="color:${N - acked ? "var(--red)" : "var(--green)"}">${N - acked}</div><div class="k-foot">${N - acked ? "Stores still pending" : "Every store has acknowledged"}</div></div>
+  return `<div class="panel row" style="justify-content:space-between;gap:16px">
+    <div class="row" style="gap:28px">
+      <div><div class="muted small">Managers acknowledged</div><div style="font-size:24px;font-weight:700">${acked}<span class="muted" style="font-size:14px"> / ${N}</span></div></div>
+      ${u.require_staff ? `<div><div class="muted small">Staff aware</div><div style="font-size:24px;font-weight:700">${aware}<span class="muted" style="font-size:14px"> / ${total || "—"}</span></div></div>` : `<div class="muted small">Managers only</div>`}
+      <div><div class="muted small">Not acknowledged</div><div style="font-size:24px;font-weight:700;color:${N - acked ? "var(--red)" : "var(--green)"}">${N - acked}</div></div>
     </div>
-    <div class="panel">
-      <div class="panel-head"><h2>Stores</h2>
-        <div class="filters" style="flex:1;justify-content:flex-end">
-          <input id="upSearch" type="search" placeholder="Search store…" value="${esc(U.q)}">
-          <select id="upFilter"><option value="all">All stores</option><option value="Pending" ${U.f === "Pending" ? "selected" : ""}>Not acknowledged</option><option value="ack" ${U.f === "ack" ? "selected" : ""}>Acknowledged</option>${u.require_staff ? `<option value="staff" ${U.f === "staff" ? "selected" : ""}>Staff not complete</option>` : ""}</select>
-          <select id="upAm"><option value="">All area managers</option>${ams.map(a => `<option value="${esc(a)}" ${U.am === a ? "selected" : ""}>${esc(titleCase(a))}</option>`).join("")}</select>
-        </div></div>
-      <div class="row" style="margin:-4px 0 12px;gap:8px"><button class="btn ghost sm" id="upCopy">${ICON.copy}Copy follow-up for WhatsApp</button><button class="btn ghost sm" id="upExport">${ICON.down}Export Excel</button></div>
-      <div class="tbl-wrap"><table><thead><tr><th>Store ID</th><th>Store</th><th>Manager</th><th class="hm">Acknowledged</th>${u.require_staff ? "<th>Staff aware</th>" : ""}</tr></thead><tbody id="upRows"></tbody></table></div>
-    </div>`;
+    <button class="btn" data-open-dash="${u.id}">${ICON.dash}Open in Dashboard</button></div>`;
 }
 function bindUpdProgress(u) {
-  const draw = () => {
-    const q = U.q.toLowerCase(), order = { Pending: 0, Late: 1, "On time": 2 };
-    const list = updRows(u).filter(r => (!q || r.name.toLowerCase().includes(q) || r.code.toLowerCase().includes(q)) && (!U.am || r.area_manager === U.am) &&
-      (U.f === "all" || (U.f === "Pending" ? !r.ack : U.f === "ack" ? !!r.ack : (r.ack && (r.total === 0 || r.staffN < r.total)))))
-      .sort((a, b) => order[a.status] - order[b.status] || a.code.localeCompare(b.code));
-    $("#upRows").innerHTML = list.length ? list.map(r => `<tr>
-      <td class="mono">${esc(r.code)}</td><td><b>${esc(r.name)}</b>${r.area_manager || r.city ? `<div class="muted small">${[r.area_manager, r.city].filter(Boolean).map(v => esc(titleCase(v))).join(" · ")}</div>` : ""}</td>
-      <td>${chip(r.status)}</td><td class="hm nowrap">${r.ack ? fmtDateTime(r.ack) : `<span class="muted">—</span>`}</td>
-      ${u.require_staff ? `<td>${r.total ? `<div class="mini-meter"><div class="meter tan"><i style="width:${r.staffPct}%"></i></div><b>${r.staffN}/${r.total}</b></div>` : r.staffN ? `<b>${r.staffN}</b>` : `<span class="muted">—</span>`}</td>` : ""}</tr>`).join("")
-      : `<tr><td colspan="5" class="empty">No stores match.</td></tr>`;
-  };
-  $("#upSearch").oninput = e => { U.q = e.target.value; draw(); };
-  $("#upFilter").onchange = e => { U.f = e.target.value; draw(); };
-  $("#upAm").onchange = e => { U.am = e.target.value; draw(); };
-  draw();
-  $("#upCopy").onclick = () => {
-    const rows = updRows(u).filter(r => !U.am || r.area_manager === U.am);
-    const pend = rows.filter(r => !r.ack), low = u.require_staff ? rows.filter(r => r.ack && r.total > 0 && r.staffN < r.total) : [];
-    const lines = [`*Hero Board update – ${u.title}*`];
-    if (pend.length) lines.push("", "Not acknowledged yet:", ...pend.map(r => `• ${r.name} (${r.code})`));
-    if (low.length) lines.push("", "Staff not complete:", ...low.map(r => `• ${r.name} – ${r.staffN}/${r.total} staff`));
-    if (lines.length === 1) lines.push("", "All stores done ✅");
-    navigator.clipboard.writeText(lines.join("\n")).then(() => toast("Copied. Paste it in WhatsApp."));
-  };
-  $("#upExport").onclick = async () => {
-    const b = $("#upExport"), label = b.innerHTML; b.disabled = true; b.innerHTML = ICON.down + "Preparing…";
-    try {
-      const { data: staff, error } = await sb.from("hb_update_staff_acks").select("store_id,employee_id,staff_name,acked_at").eq("update_id", u.id).order("acked_at").limit(10000);
-      if (error) throw error;
-      const rows = updRows(u).filter(r => !U.am || r.area_manager === U.am);
-      await buildWeekReport({
-        week: { title: u.title, start_date: u.published_at.slice(0, 10), end_date: u.closes_at.slice(0, 10), published_at: u.published_at },
-        rows, staff: staff || [], products: [], trend: [], update: u, managersOnly: !u.require_staff,
-        scope: `${U.am ? "Area manager: " + titleCase(U.am) + " · " : ""}${updAudienceText(u)} (${rows.length} stores)`, scopeShort: U.am ? titleCase(U.am) : "",
-      });
-      toast("Report downloaded");
-    } catch (e) { toast(errMsg(e), "bad"); }
-    finally { b.disabled = false; b.innerHTML = label; }
-  };
+  const b = document.querySelector(`[data-open-dash="${u.id}"]`);
+  if (b) b.onclick = () => openUpdateInDashboard(u.id);
+}
+// Excel report for an update: same format as hero weeks, follows the Dashboard's area filters
+async function exportUpdateReport(u) {
+  const { data: staff, error } = await sb.from("hb_update_staff_acks").select("store_id,employee_id,staff_name,acked_at").eq("update_id", u.id).order("acked_at").limit(10000);
+  if (error) throw error;
+  const rows = updRows(u).filter(inArea);
+  const parts = AREA.filter(([k]) => S.area[k]).map(([k, , l]) => `${l}: ${S.area[k] === NONE ? "not set" : titleCase(S.area[k])}`);
+  await buildWeekReport({
+    week: { title: u.title, start_date: u.published_at.slice(0, 10), end_date: u.closes_at.slice(0, 10), published_at: u.published_at },
+    rows, staff: staff || [], products: [], trend: [], update: u, managersOnly: !u.require_staff,
+    scope: `${parts.length ? parts.join(" · ") + " · " : ""}${updAudienceText(u)} (${rows.length} stores)`,
+    scopeShort: AREA.filter(([k]) => S.area[k] && S.area[k] !== NONE).map(([k]) => titleCase(S.area[k])).join(", "),
+  });
+  toast("Report downloaded");
 }

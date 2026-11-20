@@ -224,8 +224,8 @@ async function buildWeekReport(ctx) {
   r = end + 2;
   sectionTitle(d, r, 1, 12, "How the numbers are calculated");
   [
-    ["Acknowledged", "The store manager tapped “I acknowledge” for this week."],
-    ["On time", "Acknowledged within 24 hours of the week being published."],
+    ["Acknowledged", `The store manager tapped “I acknowledge” for this ${ctx.update ? "update" : "week"}.`],
+    ["On time", `Acknowledged within 24 hours of the ${ctx.update ? "update" : "week"} being published.`],
     ["Staff coverage", "Staff who tapped “I'm aware”, divided by each store's total staff (stores without a staff count are left out)."],
     ["Compliant store", "Acknowledged, and every staff member is aware."],
     ["Compliance score", "50% store acknowledgement rate + 50% staff coverage rate."],
@@ -343,7 +343,7 @@ async function buildWeekReport(ctx) {
   const buf = await wb.xlsx.writeBuffer();
   const blob = new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
   const a = document.createElement("a"); a.href = URL.createObjectURL(blob);
-  a.download = `Hero Board - ${w.title}${ctx.scopeShort ? " - " + ctx.scopeShort : ""}.xlsx`.replace(/[\\/:*?"<>|]/g, "");
+  a.download = `Hero Board - ${w.title}${ctx.scopeShort ? " - " + ctx.scopeShort : ""}.xlsx`.replace(/[\u2013\u2014]/g, "-").replace(/[\\/:*?"<>|]/g, "").replace(/[^\x20-\x7E\u0600-\u06FF]/g, "");
   document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
 }
 function rating(v) { return v == null ? "" : v >= 0.85 ? "Good" : v >= 0.6 ? "Needs attention" : "At risk"; }

@@ -9,12 +9,12 @@
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#111111">
-<link rel="stylesheet" href="style.css?v=17">
+<link rel="stylesheet" href="style.css?v=19">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-<script src="config.js?v=17"></script>
-<script src="common.js?v=17"></script>
-<script src="export.js?v=17"></script>
+<script src="config.js?v=19"></script>
+<script src="common.js?v=19"></script>
+<script src="export.js?v=19"></script>
 </head>
 <body>
 <div id="splash" role="status" aria-label="Loading Hero Board">
@@ -33,14 +33,15 @@
     <!-- DASHBOARD -->
     <section id="tab-dash">
       <div class="top">
-        <div><h1 id="dTitle">Dashboard</h1><p id="dSub"></p></div>
+        <div><div class="seg" id="dMode" role="tablist" aria-label="Dashboard for"><button data-m="heroes" role="tab">Hero products</button><button data-m="updates" role="tab">Updates</button></div>
+          <h1 id="dTitle">Dashboard</h1><p id="dSub"></p></div>
         <div class="row">
           <span class="live"><i></i>Live</span>
           <select id="dWeek" style="width:auto;min-width:200px"></select>
           <button class="btn ghost" id="exportBtn"></button>
         </div>
       </div>
-      <div id="dEmpty" class="panel empty hidden"><h2 style="margin-bottom:6px">No published hero week yet</h2>Go to <b>Hero Weeks</b> to create and publish one.</div>
+      <div id="dEmpty" class="panel empty hidden"></div>
       <div id="dBody">
         <div class="kpis" id="kpis"></div>
         <div class="dash-grid">
@@ -80,7 +81,7 @@
               <ul class="list" id="follow"></ul>
             </div>
             <div class="panel">
-              <div class="panel-head"><h2>Last weeks</h2>
+              <div class="panel-head"><h2 id="trendTitle">Last weeks</h2>
                 <div class="legend"><span><i style="background:var(--teal)"></i>Stores</span><span><i style="background:var(--tan)"></i>Staff</span></div>
               </div>
               <div class="trend" id="trend"></div>
@@ -160,9 +161,9 @@
 <div class="drawer" id="drawer"><div class="dh" id="drawerHead"></div><div class="db" id="drawerBody"></div></div>
 <div class="modal" id="modal"></div>
 
-<script src="motion.js?v=17"></script>
+<script src="motion.js?v=19"></script>
 <script>
-const S = { area: { area_manager: "", rom: "", region: "", city: "", group: "" }, weeks: [], stores: [], storeAcks: [], counts: {}, dashWeek: null, editWeek: null, products: [], sort: { key: "status", dir: 1 }, showPw: false, tab: "dash" };
+const S = { dashMode: "heroes", dashUpd: null, area: { area_manager: "", rom: "", region: "", city: "", group: "" }, weeks: [], stores: [], storeAcks: [], counts: {}, dashWeek: null, editWeek: null, products: [], sort: { key: "status", dir: 1 }, showPw: false, tab: "dash" };
 const BASE = location.href.replace(/[^/]*([?#].*)?$/, "");
 HB_MEDIA = { auth: {}, label: "Admin preview" };
 
@@ -288,15 +289,16 @@ async function loadAcks(ids, replace) {
 // Live refresh: only the week on screen + the current week, plus staff totals (small)
 let refreshing = false;
 async function refreshLive() {
-  if (refreshing || !S.weeks.length) return; refreshing = true;
+  if (refreshing || (!S.weeks.length && !(typeof U !== "undefined" && U.loaded))) return; refreshing = true;
   try {
     const [, st] = await Promise.all([
       loadAcks([S.dashWeek, currentWeekId()]),
       sb.from("hb_stores").select("id,total_staff"),
     ]);
     (st.data || []).forEach(x => { const s = S.stores.find(y => y.id === x.id); if (s) s.total_staff = x.total_staff; });
+    if (typeof U !== "undefined" && U.loaded && (S.tab === "updates" || (S.tab === "dash" && S.dashMode === "updates"))) await loadUpdateAcks(U.list.filter(u => u.published).map(u => u.id));
     if (S.tab === "dash") renderDash(); else if (S.tab === "weeks") renderWeeks();
-    else if (S.tab === "updates" && typeof U !== "undefined" && U.loaded) { await loadUpdateAcks(U.list.filter(u => u.published).map(u => u.id)); refreshUpdateProgress(); }
+    else if (S.tab === "updates" && typeof U !== "undefined" && U.loaded) refreshUpdateProgress();
   } catch {} finally { refreshing = false; }
 }
 async function staffList(weekId, storeId) {
@@ -355,20 +357,40 @@ function renderAreaFilters() {
 }
 function titleCase(s) { return /[a-z]/.test(s) ? s : s.toLowerCase().replace(/\b[a-z]/g, c => c.toUpperCase()); }
 
+// The dashboard shows either a hero week or an update; both use the same layout, filters, follow-up and report.
+function dashSubject() {
+  if (S.dashMode === "updates") {
+    const items = U.list.filter(u => u.published).sort((a, b) => new Date(b.published_at) - new Date(a.published_at));
+    if (!items.some(u => u.id === S.dashUpd)) S.dashUpd = items[0]?.id || null;
+    const sel = items.find(u => u.id === S.dashUpd);
+    return { kind: "update", items, sel, id: S.dashUpd, rows: u => updRows(u), label: u => `${u.title}${updState(u) === "live" ? " (live)" : " (closed)"}`,
+      sub: u => `Published ${fmtDateTime(u.published_at)} (${ago((Date.now() - new Date(u.published_at)) / 36e5)} ago) · ${updState(u) === "live" ? "open until" : "closed"} ${fmtDateTime(u.closes_at)} · ${updAudienceText(u)}${u.require_staff ? "" : " · managers only"}`,
+      staffOn: u => !!u.require_staff, trendTitle: "Last updates",
+      empty: `<h2 style="margin-bottom:6px">No published update yet</h2>Go to <b>Updates</b> to create and publish one.` };
+  }
+  const items = publishedWeeks(), sel = S.weeks.find(x => x.id === S.dashWeek);
+  return { kind: "week", items, sel, id: S.dashWeek, rows: w => weekRows(w.id), label: w => `${w.title}${w.id === currentWeekId() ? " (current)" : ""}`,
+    sub: w => `${fmtDate(w.start_date)} – ${fmtDate(w.end_date)} · Published ${fmtDateTime(w.published_at)} (${ago((Date.now() - new Date(w.published_at)) / 36e5)} ago)`,
+    staffOn: () => true, trendTitle: "Last weeks",
+    empty: `<h2 style="margin-bottom:6px">No published hero week yet</h2>Go to <b>Hero Weeks</b> to create and publish one.` };
+}
 function renderDash() {
-  const pubs = publishedWeeks();
+  document.querySelectorAll("#dMode button").forEach(b => b.classList.toggle("on", b.dataset.m === S.dashMode));
+  if (S.dashMode === "updates" && !U.loaded) { $("#dTitle").textContent = "Updates"; $("#dSub").textContent = "Loading…"; loadUpdates().then(renderDash); return; }
+  const X = dashSubject(), pubs = X.items;
+  $("#dEmpty").innerHTML = X.empty;
   $("#dEmpty").classList.toggle("hidden", !!pubs.length);
   $("#dBody").classList.toggle("hidden", !pubs.length);
   $("#exportBtn").disabled = !pubs.length;
-  $("#dWeek").innerHTML = pubs.map(w => `<option value="${w.id}" ${w.id === S.dashWeek ? "selected" : ""}>${esc(w.title)}${w.id === currentWeekId() ? " (current)" : ""}</option>`).join("");
-  if (!pubs.length) { $("#dSub").textContent = ""; return; }
-  const w = S.weeks.find(x => x.id === S.dashWeek);
-  const sinceH = (Date.now() - new Date(w.published_at)) / 36e5;
+  $("#dWeek").innerHTML = pubs.map(w => `<option value="${w.id}" ${w.id === X.id ? "selected" : ""}>${esc(X.label(w))}</option>`).join("");
+  $("#trendTitle").textContent = X.trendTitle;
+  if (!pubs.length) { $("#dTitle").textContent = X.kind === "update" ? "Updates" : "Dashboard"; $("#dSub").textContent = ""; return; }
+  const w = X.sel, staffOn = X.staffOn(w);
   $("#dTitle").textContent = w.title;
-  $("#dSub").textContent = `${fmtDate(w.start_date)} – ${fmtDate(w.end_date)} · Published ${fmtDateTime(w.published_at)} (${ago(sinceH)} ago)`;
+  $("#dSub").textContent = X.sub(w);
 
   renderAreaFilters();
-  const rows = weekRows(w.id).filter(inArea), N = rows.length;
+  const rows = X.rows(w).filter(inArea), N = rows.length;
   const acked = rows.filter(r => r.status !== "Pending"), onTime = rows.filter(r => r.status === "On time");
   const withTotal = rows.filter(r => r.total > 0);
   const staffAware = withTotal.reduce((a, r) => a + Math.min(r.staffN, r.total), 0), staffTotal = withTotal.reduce((a, r) => a + r.total, 0);
@@ -379,10 +401,13 @@ function renderDash() {
   $("#kpis").innerHTML = `
     <div class="kpi"><div class="k-label"><span class="dot" style="background:var(--teal)"></span>Stores acknowledged</div><div class="k-value">${acked.length}<small> / ${N}</small></div>
       <div class="meter"><i style="width:${pct(acked.length, N)}%"></i></div><div class="k-foot">${pct(acked.length, N)}% · ${onTime.length} on time · ${acked.length - onTime.length} late</div></div>
-    <div class="kpi"><div class="k-label"><span class="dot" style="background:var(--tan)"></span>Staff aware</div><div class="k-value">${staffAware}<small> / ${staffTotal || "—"}</small></div>
+    ${staffOn ? `<div class="kpi"><div class="k-label"><span class="dot" style="background:var(--tan)"></span>Staff aware</div><div class="k-value">${staffAware}<small> / ${staffTotal || "—"}</small></div>
       <div class="meter tan"><i style="width:${pct(staffAware, staffTotal)}%"></i></div><div class="k-foot">${staffTotal ? pct(staffAware, staffTotal) + "% of staff" : "Stores haven't set staff count"}${allStaff > staffAware ? ` · ${allStaff} sign-offs total` : ""}</div></div>
     <div class="kpi"><div class="k-label"><span class="dot" style="background:var(--teal-d)"></span>Fully briefed stores</div><div class="k-value">${full}<small> / ${N}</small></div>
-      <div class="meter"><i style="width:${pct(full, N)}%"></i></div><div class="k-foot">All staff acknowledged${noTotal ? ` · ${noTotal} store${noTotal > 1 ? "s" : ""} without staff count` : ""}</div></div>
+      <div class="meter"><i style="width:${pct(full, N)}%"></i></div><div class="k-foot">All staff acknowledged${noTotal ? ` · ${noTotal} store${noTotal > 1 ? "s" : ""} without staff count` : ""}</div></div>`
+    : `<div class="kpi"><div class="k-label"><span class="dot" style="background:var(--tan)"></span>Staff aware</div><div class="k-value" style="font-size:22px">—</div><div class="k-foot">Managers only: no staff sign-off for this update</div></div>
+    <div class="kpi"><div class="k-label"><span class="dot" style="background:var(--teal-d)"></span>Within 24 hours</div><div class="k-value">${onTime.length}<small> / ${N}</small></div>
+      <div class="meter"><i style="width:${pct(onTime.length, N)}%"></i></div><div class="k-foot">Acknowledged within 24 h of publishing</div></div>`}
     <div class="kpi"><div class="k-label"><span class="dot" style="background:var(--red)"></span>Not acknowledged</div><div class="k-value" style="color:${N - acked.length ? "var(--red)" : "var(--green)"}">${N - acked.length}</div>
       <div class="k-foot">${N - acked.length ? "Stores still pending" : "Every store has acknowledged"}</div></div>`;
 
@@ -423,9 +448,9 @@ function renderDash() {
 
   // follow-up
   const pend = rows.filter(r => r.status === "Pending");
-  const lowStaff = rows.filter(r => r.status !== "Pending" && r.total > 0 && r.staffN < r.total).sort((a, b) => a.staffPct - b.staffPct);
-  const noCount = rows.filter(r => r.status !== "Pending" && !r.total);
-  S.follow = { pend, lowStaff, noCount, title: w.title + (areaOn() ? " – " + AREA.filter(([k]) => S.area[k]).map(([k]) => S.area[k] === NONE ? "not set" : titleCase(S.area[k])).join(", ") : "") };
+  const lowStaff = staffOn ? rows.filter(r => r.status !== "Pending" && r.total > 0 && r.staffN < r.total).sort((a, b) => a.staffPct - b.staffPct) : [];
+  const noCount = staffOn ? rows.filter(r => r.status !== "Pending" && !r.total) : [];
+  S.follow = { pend, lowStaff, noCount, title: (X.kind === "update" ? "Update: " : "") + w.title + (areaOn() ? " – " + AREA.filter(([k]) => S.area[k]).map(([k]) => S.area[k] === NONE ? "not set" : titleCase(S.area[k])).join(", ") : "") };
   $("#follow").innerHTML = (pend.length + lowStaff.length + noCount.length) ? [
     ...pend.map(r => `<li><span><b>${esc(r.name)}</b> <span class="muted small mono">${esc(r.code)}</span></span>${chip("Pending")}</li>`),
     ...lowStaff.map(r => `<li><span><b>${esc(r.name)}</b> <span class="muted small mono">${esc(r.code)}</span></span><span class="chip late">Staff ${r.staffN}/${r.total}</span></li>`),
@@ -435,15 +460,20 @@ function renderDash() {
   // trend
   const tw = pubs.slice(0, 8).reverse();
   $("#trend").innerHTML = tw.map(x => {
-    const rr = weekRows(x.id).filter(inArea), n = rr.length;
+    const rr = X.rows(x).filter(inArea), n = rr.length;
     const sp = pct(rr.filter(r => r.status !== "Pending").length, n);
     const wt = rr.filter(r => r.total > 0), tp = pct(wt.reduce((a, r) => a + Math.min(r.staffN, r.total), 0), wt.reduce((a, r) => a + r.total, 0));
     return `<div class="col" title="${esc(x.title)}: stores ${sp}%, staff ${tp}%">
       <div class="bars"><div class="bar" style="height:${sp}%"></div><div class="bar tan" style="height:${tp}%"></div></div>
-      <div class="lbl" style="${x.id === S.dashWeek ? "color:#000;font-weight:700" : ""}">${esc(x.title)}</div></div>`;
+      <div class="lbl" style="${x.id === X.id ? "color:#000;font-weight:700" : ""}">${esc(x.title)}</div></div>`;
   }).join("");
 }
-$("#dWeek").onchange = async e => { S.dashWeek = +e.target.value; if (!S.storeAcks.some(a => a.week_id === S.dashWeek)) { try { await loadAcks([S.dashWeek]); } catch {} } renderDash(); };
+$("#dWeek").onchange = async e => {
+  if (S.dashMode === "updates") { S.dashUpd = +e.target.value; return renderDash(); }
+  S.dashWeek = +e.target.value; if (!S.storeAcks.some(a => a.week_id === S.dashWeek)) { try { await loadAcks([S.dashWeek]); } catch {} } renderDash();
+};
+document.querySelectorAll("#dMode button").forEach(b => b.onclick = () => { if (S.dashMode === b.dataset.m) return; S.dashMode = b.dataset.m; $("#dSearch").value = ""; $("#dFilter").value = "all"; renderDash(); animateEnter($("#dBody")); });
+function openUpdateInDashboard(id) { S.dashMode = "updates"; S.dashUpd = id; go("dash"); }
 $("#dSearch").oninput = renderDash; $("#dFilter").onchange = renderDash;
 $("#dGroup").onchange = e => { S.area.group = e.target.value; renderDash(); };
 document.querySelectorAll("th.sort").forEach(th => th.onclick = () => {
@@ -460,16 +490,19 @@ $("#copyFollow").onclick = () => {
 };
 
 async function openStore(id) {
-  const w = S.weeks.find(x => x.id === S.dashWeek), r = weekRows(w.id).find(x => x.id === id);
-  $("#drawerHead").innerHTML = `<div><h2>${esc(r.name)}</h2><div class="muted small"><span class="mono">${esc(r.code)}</span> · ${esc(w.title)}</div></div><button class="x" onclick="closeAll()">×</button>`;
+  const X = dashSubject(), w = X.sel, r = X.rows(w).find(x => x.id === id);
+  $("#drawerHead").innerHTML = `<div><h2>${esc(r.name)}</h2><div class="muted small"><span class="mono">${esc(r.code)}</span> · ${X.kind === "update" ? "Update: " : ""}${esc(w.title)}</div></div><button class="x" onclick="closeAll()">×</button>`;
   $("#drawerBody").innerHTML = `<p class="empty">Loading…</p>`; $("#overlay").classList.add("show"); $("#drawer").classList.add("show");
   let staff = [];
-  try { staff = await staffList(w.id, r.id); } catch (e) { toast(errMsg(e), "bad"); }
+  try {
+    if (X.kind === "update") { const { data, error } = await sb.from("hb_update_staff_acks").select("employee_id,staff_name,acked_at").eq("update_id", w.id).eq("store_id", r.id).order("acked_at"); if (error) throw error; staff = data || []; }
+    else staff = await staffList(w.id, r.id);
+  } catch (e) { toast(errMsg(e), "bad"); }
   if (!$("#drawer").classList.contains("show")) return;
   $("#drawerBody").innerHTML = `
     <div class="grid2" style="margin-bottom:16px">
       <div class="kpi"><div class="k-label">Manager</div><div style="margin-top:8px">${chip(r.status)}</div><div class="k-foot">${r.ack ? fmtDateTime(r.ack) : "Not yet"}</div></div>
-      <div class="kpi"><div class="k-label">Staff aware</div><div class="k-value">${r.staffN}<small> / ${r.total || "—"}</small></div></div>
+      <div class="kpi"><div class="k-label">Staff aware</div>${X.staffOn(w) ? `<div class="k-value">${r.staffN}<small> / ${r.total || "—"}</small></div>` : `<div class="k-foot" style="margin-top:10px">Managers only: no staff sign-off</div>`}</div>
     </div>
     <h3 style="margin-bottom:8px">Staff who acknowledged</h3>
     ${staff.length ? `<div class="tbl-wrap"><table><thead><tr><th>#</th><th>Name</th><th>Employee ID</th><th>Time</th></tr></thead><tbody>
@@ -484,6 +517,7 @@ $("#exportBtn").onclick = async () => {
   const btn = $("#exportBtn"), label = btn.innerHTML;
   btn.disabled = true; btn.innerHTML = ICON.down + '<span class="hm">Preparing…</span>';
   try {
+    if (S.dashMode === "updates") { await exportUpdateReport(dashSubject().sel); return; }
     const w = S.weeks.find(x => x.id === S.dashWeek);
     const rows = weekRows(w.id).filter(inArea);
     const [staff, prod] = await Promise.all([staffList(w.id), sb.from("hb_products").select("*").eq("week_id", w.id).order("sort").order("id")]);
@@ -819,6 +853,6 @@ function parsePrice(v) { const n = parseFloat(String(v ?? "").replace(/[^0-9.]/g
 
 boot();
 </script>
-<script src="updates.js?v=17"></script>
+<script src="updates.js?v=19"></script>
 </body>
 </html>
