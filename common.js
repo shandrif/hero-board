@@ -20,6 +20,7 @@ function errMsg(e) {
   const m = (e && (e.message || e.error_description)) || String(e);
   if (m.includes("SESSION_EXPIRED")) return "Your session has ended. Please log in again.";
   if (m.includes("LINK_INVALID")) return "This link is not valid. Please ask your store manager for the latest link.";
+  if (m.includes("MANAGER_FIRST")) return "Your store manager hasn't confirmed this yet. Ask your manager to tap \"I acknowledge\" first.";
   if (m.includes("WEEK_CHANGED")) return "A newer hero week has just been published. The page has been refreshed, please check it again.";
   if (m.includes("UPDATE_CLOSED")) return "This update has just been closed or changed. The page has been refreshed.";
   if (m.includes("RELOAD")) return "This page is out of date. Please reload it and try again.";
