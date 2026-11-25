@@ -8,10 +8,10 @@
 <link rel="icon" href="favicon-32.png" type="image/png" sizes="32x32">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <meta name="theme-color" content="#111111">
-<link rel="stylesheet" href="style.css?v=21">
+<link rel="stylesheet" href="style.css?v=22">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
-<script src="config.js?v=21"></script>
-<script src="common.js?v=21"></script>
+<script src="config.js?v=22"></script>
+<script src="common.js?v=22"></script>
 </head>
 <body>
 <div id="splash" role="status" aria-label="Loading">
@@ -23,7 +23,7 @@
     <div id="content"></div>
   </main>
 </div>
-<script src="motion.js?v=21"></script>
+<script src="motion.js?v=22"></script>
 <script>
 // One link per store: staff.html?k=<store link key>[&v=heroes|updates]
 // Two SEPARATE sections, each with its own confirmation: this week's hero products, and open updates.
@@ -39,8 +39,14 @@ const normId = v => String(v || "").replace(/[٠-٩]/g, d => "٠١٢٣٤٥٦٧٨
 
 const readMe = () => { try { return JSON.parse(storageGet(meKey) || "null"); } catch { return null; } };
 const hasWeek = () => !!(D.week && D.products.length);
-const weekPending = me => hasWeek() && (!me || me.week !== D.week.id);
-const updPending = me => D.updates.filter(u => !me || !(me.updates || []).includes(u.id));
+// staff can confirm only after their store manager has acknowledged (mgr_ack false = not yet)
+const mgrOk = x => !!x && x.mgr_ack !== false;
+const okUpdates = () => D.updates.filter(mgrOk);
+const weekPending = me => hasWeek() && mgrOk(D.week) && (!me || me.week !== D.week.id);
+const updPending = me => okUpdates().filter(u => !me || !(me.updates || []).includes(u.id));
+function waitHTML(what) {
+  return `<div class="panel empty"><h2 style="margin-bottom:6px">Waiting for your manager</h2>Your store manager hasn't confirmed ${what} yet.<br>Ask your manager to open Hero Board and tap <b>I acknowledge</b>, then open this link again.<div style="margin-top:14px"><button class="btn" id="waitRetry">Check again</button></div></div>`;
+}
 
 async function load() {
   if (!UUID.test(K)) return fail("LINK_INVALID");
@@ -55,7 +61,7 @@ async function load() {
   }
   if (sec === "updates" && !D.updates.length) sec = null;
   if (sec === "heroes" && !hasWeek()) sec = null;
-  if (!sec) { const me = readMe(); sec = updPending(me).length ? "updates" : hasWeek() ? "heroes" : "updates"; }
+  if (!sec) { const me = readMe(); sec = updPending(me).length ? "updates" : weekPending(me) ? "heroes" : hasWeek() && mgrOk(D.week) ? "heroes" : okUpdates().length ? "updates" : hasWeek() ? "heroes" : "updates"; }
   draw(); hideSplash();
 }
 function draw() {
@@ -63,8 +69,11 @@ function draw() {
   const tabs = hasWeek() && D.updates.length ? `<div class="seg" id="sec" role="tablist" style="margin-bottom:14px">
       <button data-s="heroes" class="${sec === "heroes" ? "on" : ""}">Hero products${wp ? " •" : ""}</button>
       <button data-s="updates" class="${sec === "updates" ? "on" : ""}">Updates${nu ? ` (${nu})` : ""}</button></div>` : "";
-  $("#content").innerHTML = tabs + (sec === "updates" ? `
-    <div class="panel"><div class="panel-head"><h2>Updates for you <span class="muted">(${D.updates.length})</span></h2></div>${D.updates.map(u => updateCard(u)).join("")}</div>
+  const ups = okUpdates(), locked = D.updates.length - ups.length;
+  const waiting = sec === "updates" ? !ups.length : !mgrOk(D.week);
+  $("#content").innerHTML = tabs + (waiting ? waitHTML(sec === "updates" ? (D.updates.length > 1 ? "these updates" : "this update") : "this week's hero products") : sec === "updates" ? `
+    <div class="panel"><div class="panel-head"><h2>Updates for you <span class="muted">(${ups.length})</span></h2></div>${ups.map(u => updateCard(u)).join("")}
+      ${locked ? `<p class="muted small" style="margin:10px 0 0">${locked} more update${locked > 1 ? "s" : ""} will appear here after your manager confirms ${locked > 1 ? "them" : "it"}.</p>` : ""}</div>
     <div class="panel" id="formPanel"></div>` : `
     <div class="hero-banner"><div>
       <div class="eyebrow">This week's hero products · ${esc(D.store.name)}</div>
@@ -72,14 +81,15 @@ function draw() {
     <div class="panel">${productCards(D.products)}</div>
     <div class="panel" id="formPanel"></div>`);
   document.querySelectorAll("#sec button").forEach(b => b.onclick = () => { sec = b.dataset.s; draw(); window.scrollTo(0, 0); });
-  drawForm(); animateEnter($("#content"));
+  const wr = $("#waitRetry"); if (wr) wr.onclick = () => { wr.disabled = true; load(); };
+  if (!waiting) drawForm(); animateEnter($("#content"));
 }
 function drawForm(forceNew) {
   const me = readMe(), known = me && !forceNew;
   const pending = sec === "updates" ? updPending(forceNew ? null : me).length > 0 : weekPending(forceNew ? null : me);
   if (!pending && known) { $("#formPanel").innerHTML = doneHTML(me); bindForm(); return; }
-  const what = sec === "updates" ? (D.updates.length > 1 ? "these updates" : "this update") : "this week's hero products";
-  const hasVideo = sec === "updates" && D.updates.some(u => (u.media || []).some(m => m.kind === "video"));
+  const what = sec === "updates" ? (okUpdates().length > 1 ? "these updates" : "this update") : "this week's hero products";
+  const hasVideo = sec === "updates" && okUpdates().some(u => (u.media || []).some(m => m.kind === "video"));
   $("#formPanel").innerHTML = `
       <h2 style="margin-bottom:4px">Confirm you know ${what}</h2>
       ${known ? `<p class="small" style="margin:0 0 10px;padding:8px 10px;border-radius:10px;background:var(--amber-soft)">Filled in for <b>${esc(me.name)}</b> (${esc(me.employee_id)}). <a href="#" id="notMe">Not you? Enter your own details</a></p>` : ""}
@@ -103,7 +113,7 @@ function bindForm(forceNew) {
     const ids = sec === "updates" ? updPending(me0).map(u => u.id) : [];
     const { data: r, error } = await sb.rpc("hb_staff_confirm", { p_key: K, p_employee_id: $("#fId").value, p_name: $("#fName").value, p_week_id: weekId, p_update_ids: ids });
     if (error) {
-      if (/WEEK_CHANGED|UPDATE_CLOSED|RELOAD/.test(error.message)) { toast(errMsg(error), "bad"); sec = null; return load(); }
+      if (/WEEK_CHANGED|UPDATE_CLOSED|RELOAD|MANAGER_FIRST/.test(error.message)) { toast(errMsg(error), "bad"); sec = null; return load(); }
       $("#fBtn").disabled = false; return ($("#fErr").textContent = errMsg(error));
     }
     lastOther = r.other_name || null;

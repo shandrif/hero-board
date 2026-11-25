@@ -9,12 +9,12 @@
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#111111">
-<link rel="stylesheet" href="style.css?v=21">
+<link rel="stylesheet" href="style.css?v=22">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-<script src="config.js?v=21"></script>
-<script src="common.js?v=21"></script>
-<script src="export.js?v=21"></script>
+<script src="config.js?v=22"></script>
+<script src="common.js?v=22"></script>
+<script src="export.js?v=22"></script>
 </head>
 <body>
 <div id="splash" role="status" aria-label="Loading Hero Board">
@@ -161,7 +161,7 @@
 <div class="drawer" id="drawer"><div class="dh" id="drawerHead"></div><div class="db" id="drawerBody"></div></div>
 <div class="modal" id="modal"></div>
 
-<script src="motion.js?v=21"></script>
+<script src="motion.js?v=22"></script>
 <script>
 const S = { dashMode: "heroes", dashUpd: null, area: { area_manager: "", rom: "", region: "", city: "", group: "" }, weeks: [], stores: [], storeAcks: [], counts: {}, dashWeek: null, editWeek: null, products: [], sort: { key: "status", dir: 1 }, showPw: false, tab: "dash" };
 const BASE = location.href.replace(/[^/]*([?#].*)?$/, "");
@@ -886,6 +886,6 @@ function parsePrice(v) { const n = parseFloat(String(v ?? "").replace(/[^0-9.]/g
 
 boot();
 </script>
-<script src="updates.js?v=21"></script>
+<script src="updates.js?v=22"></script>
 </body>
 </html>
